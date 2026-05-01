@@ -2,6 +2,7 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TalkHub | Sohbet Et!</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -11,14 +12,22 @@
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body { background-color: #313338; color: #dbdee1; font-family: 'gg sans', 'Noto Sans', sans-serif; }
+        .sidebar-icon { @apply w-12 h-12 bg-[#313338] text-[#23a559] rounded-3xl cursor-pointer flex items-center justify-center transition-all duration-200 hover:rounded-xl hover:bg-[#23a559] hover:text-white; }
+        .active-sidebar { @apply rounded-xl bg-[#5865f2] text-white; }
+        .discord-scroll::-webkit-scrollbar { width: 4px; }
+        .discord-scroll::-webkit-scrollbar-thumb { background: #1a1b1e; border-radius: 10px; }
+    </style>
 </head>
-<body class="bg-[#36393f] text-white">
+<body>
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // EmailJS Public Key'ini buraya yapıştır!
+        // --- AYARLAR ---
+        // EmailJS Public Key'ini Account > API Keys kısmından alıp buraya yapıştır kanka!
         emailjs.init("FdTOZL7AMRiGdirp-"); 
 
         const firebaseConfig = {
@@ -33,116 +42,124 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        const TalkHubApp = () => {
-            const [authState, setAuthState] = useState("loading");
+        const TalkHub = () => {
+            const [page, setPage] = useState("loading");
+            const [user, setUser] = useState(null);
+            const [servers, setServers] = useState([]);
+            const [activeServer, setActiveServer] = useState("home");
             const [form, setForm] = useState({ email: "", pass: "", nick: "", user: "" });
             const [otp, setOtp] = useState({ sent: "", user: "" });
 
-            // OTURUM KONTROLÜ (Kalıcı giriş sağlar)
             useEffect(() => {
-                auth.onAuthStateChanged(u => u ? setAuthState("main") : setAuthState("login"));
+                auth.onAuthStateChanged(async (u) => {
+                    if (u) {
+                        const banCheck = await db.collection("bannedUsers").doc(u.uid).get();
+                        if (banCheck.exists) {
+                            alert("Kalıcı olarak banlısın kanka!");
+                            auth.signOut();
+                        } else {
+                            setUser(u);
+                            setPage("app");
+                            loadData(u.uid);
+                        }
+                    } else {
+                        setPage("login");
+                    }
+                });
             }, []);
 
-            // GİRİŞ YAP (Şifreyle direkt giriş)
-            const handleLogin = (e) => {
-                e.preventDefault();
-                auth.signInWithEmailAndPassword(form.email, form.pass)
-                    .catch(err => alert("Giriş başarısız: " + err.message));
+            const loadData = (uid) => {
+                db.collection("servers").where("members", "array-contains", uid)
+                    .onSnapshot(s => setServers(s.docs.map(d => ({ id: d.id, ...d.data() }))));
             };
 
-            // KAYIT BAŞLAT (Mail Onayı)
-            const handleStartRegister = (e) => {
+            const handleRegister = (e) => {
                 e.preventDefault();
                 const code = Math.floor(100000 + Math.random() * 900000).toString();
                 setOtp({ ...otp, sent: code });
-
-                emailjs.send("service_lz0s5ir", "template_h4u1jp8", {
-                    to_email: form.email,
-                    code: code
-                }).then(() => setAuthState("otp")).catch(err => alert("Hata: " + err.text));
+                emailjs.send("service_lz0s5ir", "template_h4u1jp8", { to_email: form.email, code: code })
+                    .then(() => setPage("otp")).catch(err => alert("Mail hatası!"));
             };
 
-            // KAYDI TAMAMLA VE HESABI OLUŞTUR
-            const finalizeSignUp = async () => {
-                if (otp.user === otp.sent) {
-                    try {
-                        const res = await auth.createUserWithEmailAndPassword(form.email, form.pass);
-                        await res.user.updateProfile({ displayName: form.nick });
-                        await db.collection("users").doc(res.user.uid).set({
-                            username: form.user.toLowerCase(),
-                            nickname: form.nick,
-                            email: form.email,
-                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                    } catch (err) { alert(err.message); }
-                } else alert("Kod yanlış!");
+            const createServer = async () => {
+                const n = prompt("Sunucu Adı:");
+                if (!n) return;
+                const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+                await db.collection("servers").add({
+                    name: n, owner: auth.currentUser.uid, members: [auth.currentUser.uid], inviteCode: code
+                });
             };
 
-            if (authState === "login") return (
-                <div className="h-screen flex items-center justify-center">
-                    <form onSubmit={handleLogin} className="bg-[#2f3136] p-10 rounded-lg w-96 shadow-2xl border border-[#202225]">
-                        <h2 className="text-3xl font-bold text-center mb-6">Hoş Geldin!</h2>
+            // --- GÖRÜNÜMLER ---
+            if (page === "login") return (
+                <div className="h-screen flex items-center justify-center bg-[#1e1f22]">
+                    <form className="bg-[#313338] p-10 rounded-lg shadow-2xl w-96 border border-black/20" 
+                          onSubmit={(e) => { e.preventDefault(); auth.signInWithEmailAndPassword(form.email, form.pass); }}>
+                        <h1 className="text-2xl font-bold text-center mb-2 text-white">TalkHub | Sohbet Et!</h1>
+                        <p className="text-gray-400 text-center mb-8 text-sm">Tekrar hoş geldin kanka!</p>
                         <div className="space-y-4">
-                            <input type="email" placeholder="E-posta" className="w-full bg-[#202225] p-3 rounded outline-none focus:ring-1 ring-[#5865f2]" onChange={e => setForm({...form, email: e.target.value})} required />
-                            <input type="password" placeholder="Şifre" className="w-full bg-[#202225] p-3 rounded outline-none focus:ring-1 ring-[#5865f2]" onChange={e => setForm({...form, pass: e.target.value})} required />
+                            <input type="email" placeholder="E-posta" className="w-full bg-[#1e1f22] p-3 rounded outline-none focus:ring-1 ring-[#5865f2]" onChange={e => setForm({...form, email: e.target.value})} />
+                            <input type="password" placeholder="Şifre" className="w-full bg-[#1e1f22] p-3 rounded outline-none focus:ring-1 ring-[#5865f2]" onChange={e => setForm({...form, pass: e.target.value})} />
                             <button type="submit" className="w-full bg-[#5865f2] py-3 rounded font-bold hover:bg-[#4752c4] transition">Giriş Yap</button>
-                            <p className="text-center text-sm text-gray-400">Hesabın yok mu? <span className="text-[#00aff4] cursor-pointer" onClick={() => setAuthState("register")}>Kaydol</span></p>
+                            <p className="text-center text-xs text-gray-400">Hesabın yok mu? <span className="text-[#00aff4] cursor-pointer" onClick={() => setPage("signup")}>Kaydol</span></p>
                         </div>
                     </form>
                 </div>
             );
 
-            if (authState === "register") return (
-                <div className="h-screen flex items-center justify-center">
-                    <form onSubmit={handleStartRegister} className="bg-[#2f3136] p-10 rounded-lg w-96 shadow-2xl">
-                        <h2 className="text-2xl font-bold text-center mb-6">Hesap Oluştur</h2>
-                        <div className="space-y-4">
-                            <input type="text" placeholder="Görünen Ad" className="w-full bg-[#202225] p-3 rounded outline-none" onChange={e => setForm({...form, nick: e.target.value})} required />
-                            <input type="text" placeholder="Kullanıcı Adı" className="w-full bg-[#202225] p-3 rounded outline-none" onChange={e => setForm({...form, user: e.target.value})} required />
-                            <input type="email" placeholder="E-posta" className="w-full bg-[#202225] p-3 rounded outline-none" onChange={e => setForm({...form, email: e.target.value})} required />
-                            <input type="password" placeholder="Şifre" className="w-full bg-[#202225] p-3 rounded outline-none" onChange={e => setForm({...form, pass: e.target.value})} required />
-                            <button type="submit" className="w-full bg-[#3ec44f] py-3 rounded font-bold hover:bg-[#34a843]">Kod Gönder ve Kaydol</button>
-                            <p className="text-center text-sm text-gray-400"><span className="text-[#00aff4] cursor-pointer" onClick={() => setAuthState("login")}>Geri Dön</span></p>
+            if (page === "app") return (
+                <div className="flex h-screen w-full select-none overflow-hidden">
+                    {/* SOL PANEL (SUNUCULAR) */}
+                    <div className="w-[72px] bg-[#1e1f22] flex flex-col items-center py-3 space-y-2">
+                        <div onClick={() => setActiveServer("home")} className={`sidebar-icon ${activeServer === "home" ? "active-sidebar" : ""}`}>TH</div>
+                        <div className="w-8 h-[2px] bg-[#35363c] rounded-full"></div>
+                        {servers.map(s => (
+                            <div key={s.id} onClick={() => setActiveServer(s.id)} className={`sidebar-icon font-bold ${activeServer === s.id ? "active-sidebar" : ""}`}>
+                                {s.name[0].toUpperCase()}
+                            </div>
+                        ))}
+                        <button onClick={createServer} className="sidebar-icon text-2xl">+</button>
+                    </div>
+
+                    {/* ORTA PANEL (KANALLAR) */}
+                    <div className="w-60 bg-[#2b2d31] flex flex-col">
+                        <div className="h-12 border-b border-black/20 flex items-center px-4 font-bold shadow-sm">
+                            {activeServer === "home" ? "Ana Sayfa" : servers.find(s => s.id === activeServer)?.name}
                         </div>
-                    </form>
-                </div>
-            );
-
-            if (authState === "otp") return (
-                <div className="h-screen flex items-center justify-center">
-                    <div className="bg-[#2f3136] p-10 rounded text-center w-80">
-                        <h2 className="text-xl font-bold mb-4">Kodu Onayla</h2>
-                        <input type="text" maxLength="6" className="w-full bg-[#202225] p-4 text-center text-2xl tracking-widest rounded mb-6 outline-none border-2 border-[#5865f2]" onChange={e => setOtp({...otp, user: e.target.value})} />
-                        <button onClick={finalizeSignUp} className="w-full bg-[#5865f2] py-3 rounded font-bold">Hesabımı Oluştur</button>
+                        <div className="flex-1 p-3 text-xs text-gray-400 font-bold uppercase tracking-widest">
+                            # genel-sohbet
+                        </div>
+                        <div className="bg-[#232428] p-2 flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                                <div className="w-8 h-8 bg-[#5865f2] rounded-full flex items-center justify-center text-xs">U</div>
+                                <span className="text-xs font-bold truncate w-24">{user?.displayName || "Kullanıcı"}</span>
+                            </div>
+                            <button onClick={() => auth.signOut()} className="text-[10px] hover:text-red-400">Çıkış</button>
+                        </div>
                     </div>
-                </div>
-            );
 
-            if (authState === "main") return (
-                <div className="flex h-screen w-full bg-[#36393f]">
-                    {/* Basit Yan Panel */}
-                    <div className="w-[72px] bg-[#202225] flex flex-col items-center py-4 space-y-4">
-                        <div className="w-12 h-12 bg-[#5865f2] rounded-xl flex items-center justify-center font-bold text-white shadow-lg">TH</div>
-                    </div>
-                    {/* Sohbet Alanı */}
+                    {/* ANA SOHBET */}
                     <div className="flex-1 flex flex-col">
-                        <div className="h-12 border-b border-[#202225] flex items-center px-4 font-bold text-gray-200 shadow-sm">
-                            TalkHub | Sohbet Et!
+                        <div className="h-12 border-b border-black/20 flex items-center px-4 font-bold">
+                            <span className="text-gray-400 mr-2">#</span> genel-sohbet
                         </div>
-                        <div className="flex-1 flex items-center justify-center flex-col space-y-4">
-                            <h1 className="text-4xl font-bold">Hoş geldin, {auth.currentUser?.displayName}!</h1>
-                            <p className="text-gray-400">Artık kalıcı bir hesabın var kanka.</p>
-                            <button onClick={() => auth.signOut()} className="bg-red-500/20 text-red-400 px-6 py-2 rounded hover:bg-red-500 hover:text-white transition">Çıkış Yap</button>
+                        <div className="flex-1 p-6 flex flex-col items-center justify-center text-gray-500 opacity-50 italic">
+                            {activeServer === "home" ? "Bir sunucuya gir veya DM başlat kanka!" : "Sohbet odası henüz boş."}
+                        </div>
+                        <div className="p-4 px-6">
+                            <div className="bg-[#383a40] p-3 rounded-lg flex items-center shadow-inner">
+                                <input placeholder="Mesaj gönder..." className="bg-transparent w-full outline-none text-sm px-2" />
+                            </div>
                         </div>
                     </div>
                 </div>
             );
 
-            return <div className="h-screen flex items-center justify-center animate-pulse">Yükleniyor...</div>;
+            return <div className="h-screen flex items-center justify-center italic opacity-30 bg-[#1e1f22]">Yükleniyor...</div>;
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<TalkHubApp />);
+        root.render(<TalkHub />);
     </script>
 </body>
 </html>
