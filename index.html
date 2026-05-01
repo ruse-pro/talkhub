@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TalkHub | Sohbet Başlasın</title>
+    <title>TalkHub | Sohbet Et!</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
@@ -14,7 +14,8 @@
     <style>
         body { background-color: #313338; color: #dbdee1; font-family: sans-serif; overflow: hidden; }
         .th-logo { @apply w-12 h-12 flex items-center justify-center bg-[#5865f2] text-white font-black rounded-[16px] transition-all hover:rounded-[12px] cursor-pointer; }
-        .sidebar-btn { @apply w-12 h-12 bg-[#313338] text-[#23a559] rounded-3xl flex items-center justify-center transition-all hover:rounded-xl hover:bg-[#5865f2] hover:text-white cursor-pointer; }
+        .sidebar-btn { @apply w-12 h-12 bg-[#313338] text-[#23a559] rounded-3xl flex items-center justify-center transition-all hover:rounded-xl hover:bg-[#5865f2] hover:text-white cursor-pointer relative; }
+        .sidebar-btn.active::before { content: ""; position: absolute; left: -12px; height: 35px; width: 4px; background: white; border-radius: 0 4px 4px 0; }
         .modal-overlay { background: rgba(0,0,0,0.85); position: fixed; inset: 0; z-index: 999; display: flex; align-items: center; justify-content: center; }
     </style>
 </head>
@@ -40,62 +41,68 @@
             const [user, setUser] = useState(null);
             const [loading, setLoading] = useState(true);
             const [userData, setUserData] = useState(null);
+            const [servers, setServers] = useState([]);
             const [activeTab, setActiveTab] = useState("dm");
             const [modal, setModal] = useState(null);
-            const [newName, setNewName] = useState("");
             
-            // Login States
+            // Input States
+            const [serverName, setServerName] = useState("");
+            const [newName, setNewName] = useState("");
             const [email, setEmail] = useState("");
             const [password, setPassword] = useState("");
 
             useEffect(() => {
                 const unsubscribe = auth.onAuthStateChanged(async (u) => {
                     if (u) {
-                        const doc = await db.collection("users").doc(u.uid).get();
-                        if (doc.exists) {
-                            setUserData(doc.data());
-                        } else {
-                            // Eğer kullanıcı DB'de yoksa (yeni kayıt), oluştur
-                            const newData = { username: u.email.split('@')[0], nickname: u.email.split('@')[0], email: u.email };
-                            await db.collection("users").doc(u.uid).set(newData);
-                            setUserData(newData);
-                        }
                         setUser(u);
+                        // Kullanıcı verisini çek
+                        const userDoc = await db.collection("users").doc(u.uid).get();
+                        if (userDoc.exists) setUserData(userDoc.data());
+                        
+                        // Sunucuları çek
+                        db.collection("servers").where("members", "array-contains", u.uid)
+                          .onSnapshot(snap => {
+                              setServers(snap.docs.map(doc => ({id: doc.id, ...doc.data()})));
+                          });
                     } else {
                         setUser(null);
-                        setUserData(null);
                     }
                     setLoading(false);
                 });
                 return () => unsubscribe();
             }, []);
 
-            const handleLogin = async () => {
+            // Sunucu Ekleme Fonksiyonu
+            const createServer = async () => {
+                if(!serverName) return;
                 try {
-                    await auth.signInWithEmailAndPassword(email, password);
+                    const newServer = {
+                        name: serverName,
+                        owner: user.uid,
+                        members: [user.uid],
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    };
+                    await db.collection("servers").add(newServer);
+                    setServerName("");
+                    setModal(null);
+                    alert("Sunucu başarıyla oluşturuldu!");
                 } catch (e) { alert("Hata: " + e.message); }
             };
 
-            const updateNickname = async () => {
-                if(!newName) return;
-                await db.collection("users").doc(user.uid).update({ nickname: newName });
-                setUserData({...userData, nickname: newName});
-                setModal(null);
-                alert("İsim güncellendi!");
+            const handleLogin = async () => {
+                try { await auth.signInWithEmailAndPassword(email, password); } 
+                catch (e) { alert("Giriş başarısız kanka."); }
             };
 
-            if (loading) return <div className="h-screen bg-[#1e1f22] flex items-center justify-center text-white font-bold">TalkHub Yükleniyor...</div>;
+            if (loading) return <div className="h-screen bg-[#1e1f22] flex items-center justify-center text-white">Yükleniyor...</div>;
 
             if (!user) return (
-                <div className="h-screen flex items-center justify-center bg-[#1e1f22] p-4">
-                    <div className="bg-[#313338] p-8 rounded-2xl w-full max-w-md shadow-2xl border border-white/5">
-                        <div className="th-logo mx-auto mb-6 text-xl">TH</div>
-                        <h2 className="text-2xl font-bold text-white text-center mb-6">TalkHub'a Giriş Yap</h2>
-                        <input className="w-full bg-[#1e1f22] p-3 rounded mb-4 text-white outline-none border border-transparent focus:border-[#5865f2]" 
-                               placeholder="E-posta" onChange={e => setEmail(e.target.value)} />
-                        <input type="password" className="w-full bg-[#1e1f22] p-3 rounded mb-6 text-white outline-none border border-transparent focus:border-[#5865f2]" 
-                               placeholder="Şifre" onChange={e => setPassword(e.target.value)} />
-                        <button onClick={handleLogin} className="w-full bg-[#5865f2] py-3 rounded font-bold text-white hover:bg-[#4752c4] transition">Giriş Yap</button>
+                <div className="h-screen flex items-center justify-center bg-[#1e1f22]">
+                    <div className="bg-[#313338] p-8 rounded-xl w-80 text-center">
+                        <div className="th-logo mx-auto mb-6">TH</div>
+                        <input className="w-full bg-[#1e1f22] p-2 rounded mb-2 text-white" placeholder="E-posta" onChange={e => setEmail(e.target.value)} />
+                        <input type="password" className="w-full bg-[#1e1f22] p-2 rounded mb-4 text-white" placeholder="Şifre" onChange={e => setPassword(e.target.value)} />
+                        <button onClick={handleLogin} className="w-full bg-[#5865f2] py-2 rounded font-bold text-white">Giriş Yap</button>
                     </div>
                 </div>
             );
@@ -104,48 +111,73 @@
                 <div className="flex h-screen w-full">
                     {/* SIDEBAR */}
                     <div className="w-[72px] bg-[#1e1f22] flex flex-col items-center py-3 space-y-2 shrink-0">
-                        <div onClick={() => setActiveTab("dm")} className="th-logo">TH</div>
+                        <div onClick={() => setActiveTab("dm")} className={`th-logo ${activeTab === "dm" ? "rounded-xl" : ""}`}>TH</div>
                         <div className="w-8 h-[2px] bg-[#35363c] rounded-full"></div>
-                        <div className="sidebar-btn text-2xl font-bold">+</div>
+                        
+                        {servers.map(s => (
+                            <div key={s.id} onClick={() => setActiveTab(s.id)} 
+                                 className={`sidebar-btn ${activeTab === s.id ? "active bg-[#5865f2] text-white rounded-xl" : ""}`}>
+                                {s.name[0].toUpperCase()}
+                            </div>
+                        ))}
+
+                        <div onClick={() => setModal("createServer")} className="sidebar-btn text-2xl font-light">+</div>
                     </div>
 
                     {/* PANEL */}
                     <div className="w-60 bg-[#2b2d31] flex flex-col shrink-0">
-                        <div className="h-12 flex items-center px-4 font-bold border-b border-black/20 text-white">TalkHub</div>
+                        <div className="h-12 flex items-center px-4 font-bold border-b border-black/20 text-white truncate shadow-sm">
+                            {activeTab === "dm" ? "TalkHub" : servers.find(s => s.id === activeTab)?.name}
+                        </div>
                         <div className="flex-1 p-2">
-                            <div className="p-2 rounded bg-[#3f4147] text-white cursor-pointer font-medium mb-4">👥 Arkadaşlar</div>
-                            <div className="text-xs font-bold text-gray-400 px-2 uppercase tracking-widest mb-2">Ayarlar</div>
-                            <div onClick={() => setModal("userSettings")} className="p-2 rounded hover:bg-[#35373c] text-gray-300 cursor-pointer text-sm">⚙️ Hesap Ayarları</div>
+                            {activeTab === "dm" ? (
+                                <div className="p-2 rounded bg-[#3f4147] text-white cursor-pointer font-medium">👥 Arkadaşlar</div>
+                            ) : (
+                                <div className="text-sm text-gray-400 p-2"># genel-sohbet</div>
+                            )}
                         </div>
                         
-                        {/* ALT KULLANICI BARI */}
                         <div className="bg-[#232428] p-2 flex items-center justify-between">
                             <div className="flex items-center space-x-2">
-                                <div className="w-8 h-8 rounded-full bg-[#5865f2] flex items-center justify-center font-bold text-[10px] text-white">TH</div>
-                                <span className="text-xs font-bold text-white">{userData?.nickname}</span>
+                                <div className="w-8 h-8 rounded-full bg-[#5865f2] flex items-center justify-center text-[10px] text-white font-bold">TH</div>
+                                <span className="text-xs font-bold text-white truncate w-24">{userData?.nickname || user.email.split('@')[0]}</span>
                             </div>
-                            <span className="text-gray-400 cursor-pointer text-lg" onClick={() => setModal("userSettings")}>⚙️</span>
+                            <span className="text-gray-400 cursor-pointer text-lg hover:text-white transition" onClick={() => setModal("userSettings")}>⚙️</span>
                         </div>
                     </div>
 
-                    {/* ANA EKRAN */}
-                    <div className="flex-1 bg-[#313338] flex flex-col items-center justify-center">
-                        <h1 className="text-3xl font-bold text-white mb-2">Hoş geldin, {userData?.nickname}!</h1>
-                        <p className="text-gray-400 italic">"Sesli sohbet ve arkadaş ekleme özellikleri geliştiriliyor..."</p>
+                    {/* ANA ALAN */}
+                    <div className="flex-1 bg-[#313338] flex items-center justify-center flex-col text-center p-4">
+                        <h1 className="text-2xl font-bold text-white mb-2">
+                            {activeTab === "dm" ? `Selam, ${userData?.nickname || 'Kanka'}!` : `${servers.find(s => s.id === activeTab)?.name} Sunucusuna Hoş Geldin!`}
+                        </h1>
+                        <p className="text-gray-400">Burada henüz bir mesaj yok.</p>
                     </div>
 
-                    {/* AYARLAR MODALI */}
+                    {/* SUNUCU EKLEME MODALI */}
+                    {modal === "createServer" && (
+                        <div className="modal-overlay" onClick={() => setModal(null)}>
+                            <div className="bg-[#313338] p-6 rounded-xl w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
+                                <h2 className="text-white text-lg font-bold mb-4 text-center">Sunucunu Oluştur</h2>
+                                <input className="w-full bg-[#1e1f22] p-3 rounded mb-4 text-white outline-none" 
+                                       placeholder="Sunucu Adı" value={serverName} onChange={e => setServerName(e.target.value)} />
+                                <button onClick={createServer} className="w-full bg-[#23a559] py-2 rounded font-bold text-white hover:bg-[#1a7a42]">Oluştur</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* HESAP AYARLARI MODALI */}
                     {modal === "userSettings" && (
                         <div className="modal-overlay" onClick={() => setModal(null)}>
-                            <div className="bg-[#313338] p-8 rounded-xl w-96 shadow-2xl border border-white/10" onClick={e => e.stopPropagation()}>
-                                <h2 className="text-white text-xl font-bold mb-4">Hesap Ayarları</h2>
-                                <label className="text-xs font-bold text-gray-400 uppercase">İsim Değiştir</label>
-                                <input className="w-full bg-[#1e1f22] p-3 rounded mt-2 mb-6 text-white outline-none" 
-                                       placeholder="Yeni İsim" value={newName} onChange={e => setNewName(e.target.value)} />
-                                <div className="flex space-x-3">
-                                    <button onClick={updateNickname} className="flex-1 bg-[#23a559] py-2 rounded font-bold text-white">Kaydet</button>
-                                    <button onClick={() => setModal(null)} className="flex-1 bg-red-500/20 text-red-500 py-2 rounded font-bold">Kapat</button>
-                                </div>
+                            <div className="bg-[#313338] p-6 rounded-xl w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
+                                <h2 className="text-white text-lg font-bold mb-4">Hesap Ayarları</h2>
+                                <input className="w-full bg-[#1e1f22] p-3 rounded mb-4 text-white outline-none" 
+                                       placeholder="Yeni Takma Ad" value={newName} onChange={e => setNewName(e.target.value)} />
+                                <button onClick={async () => {
+                                    await db.collection("users").doc(user.uid).update({ nickname: newName });
+                                    setUserData({...userData, nickname: newName});
+                                    setModal(null);
+                                }} className="w-full bg-[#5865f2] py-2 rounded font-bold text-white">Güncelle</button>
                             </div>
                         </div>
                     )}
