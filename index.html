@@ -2,7 +2,7 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <title>TalkHub | Pro</title>
+    <title>TalkHub | My Identity</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
@@ -11,7 +11,7 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
-<body class="bg-[#36393f] select-none text-gray-100 overflow-hidden">
+<body class="bg-[#36393f] text-gray-100 select-none overflow-hidden">
     <div id="root"></div>
 
     <script type="text/babel">
@@ -32,146 +32,158 @@
 
         const TalkHub = () => {
             const [user, setUser] = useState(null);
-            const [view, setView] = useState("setup");
+            const [view, setView] = useState("auth"); // auth, setup, main
+            const [customName, setCustomName] = useState("");
+            const [customPhoto, setCustomPhoto] = useState("https://via.placeholder.com/150");
+            const [servers, setServers] = useState([]);
+            const [friends, setFriends] = useState([]);
+            const [activeView, setActiveView] = useState("dm"); // dm or serverId
             const [messages, setMessages] = useState([]);
             const [inputText, setInputText] = useState("");
-            const [serverName, setServerName] = useState("");
-            const [friends, setFriends] = useState([]);
-            const [userPhoto, setUserPhoto] = useState("");
 
             useEffect(() => {
                 auth.onAuthStateChanged(u => {
-                    if(u) {
-                        setUser(u);
-                        setUserPhoto(u.photoURL);
-                    }
+                    if(u) setView("setup");
+                    else setView("auth");
                 });
             }, []);
 
+            // Mesajları Dinle
             useEffect(() => {
-                if (view === "server") {
-                    const unsub = db.collection("messages").orderBy("time", "asc").limitToLast(50).onSnapshot(s => {
+                if (activeView !== "dm") {
+                    const unsub = db.collection("messages").orderBy("time", "asc").onSnapshot(s => {
                         setMessages(s.docs.map(d => ({id: d.id, ...d.data()})));
                     });
                     return () => unsub();
                 }
-            }, [view]);
+            }, [activeView]);
 
-            const changePhoto = () => {
-                const newUrl = prompt("Yeni profil fotoğrafı linkini yapıştır:", userPhoto);
-                if(newUrl) setUserPhoto(newUrl);
+            const handlePhotoUpload = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onloadend = () => setCustomPhoto(reader.result);
+                    reader.readAsDataURL(file);
+                }
             };
 
-            const addFriend = () => {
-                const name = prompt("Eklemek istediğin arkadaşın adı:");
-                if(name) setFriends([...friends, { name, id: Date.now() }]);
+            const addServer = () => {
+                const sName = prompt("Sunucu Adı:");
+                if(sName) setServers([...servers, { id: Date.now(), name: sName }]);
+            };
+
+            const deleteFriend = (id) => {
+                setFriends(friends.filter(f => f.id !== id));
             };
 
             const sendMessage = (e) => {
-                if(e.key === 'Enter' && inputText.trim() && user) {
+                if(e.key === 'Enter' && inputText.trim()) {
                     db.collection("messages").add({
                         text: inputText,
-                        user: user.displayName,
-                        photo: userPhoto,
+                        user: customName || user.displayName,
+                        photo: customPhoto,
                         time: firebase.firestore.FieldValue.serverTimestamp()
                     });
                     setInputText("");
                 }
             };
 
-            if (!user) return (
+            // 1. GİRİŞ EKRANI
+            if (view === "auth") return (
                 <div className="h-screen flex items-center justify-center bg-[#2f3136]">
-                    <button onClick={() => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())} className="bg-[#5865f2] px-10 py-4 rounded font-bold text-white shadow-2xl hover:bg-[#4752c4] transition">TalkHub'a Giriş Yap</button>
+                    <button onClick={() => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())} className="bg-[#5865f2] px-10 py-4 rounded-lg font-bold hover:bg-[#4752c4] transition shadow-2xl">TalkHub'a Google ile Bağlan</button>
                 </div>
             );
 
+            // 2. KİMLİK VE KURULUM EKRANI
             if (view === "setup") return (
-                <div className="h-screen flex items-center justify-center bg-[#2f3136]">
-                    <div className="bg-[#36393f] p-8 rounded-xl w-full max-w-md shadow-2xl border border-gray-700">
-                        <h2 className="text-2xl font-bold text-center mb-6">Nasıl Başlamak İstersin?</h2>
-                        <div className="space-y-4">
-                            <div className="p-4 bg-[#2f3136] rounded-lg border border-dashed border-gray-500 hover:border-[#5865f2] cursor-pointer group transition">
-                                <input value={serverName} onChange={e => setServerName(e.target.value)} placeholder="Sunucu Adı" className="bg-transparent w-full outline-none text-white font-bold" />
-                                <button onClick={() => serverName && setView("server")} className="w-full mt-3 bg-[#5865f2] py-2 rounded font-bold text-sm">Sunucu Oluştur</button>
+                <div className="h-screen flex items-center justify-center bg-[#2f3136] p-4">
+                    <div className="bg-[#36393f] p-8 rounded-2xl w-full max-w-md border border-gray-700 shadow-2xl">
+                        <h2 className="text-2xl font-bold text-center mb-6">Profilini Özelleştir</h2>
+                        <div className="flex flex-col items-center space-y-4">
+                            <div className="relative group cursor-pointer">
+                                <img src={customPhoto} className="w-24 h-24 rounded-full border-4 border-[#5865f2] object-cover" />
+                                <input type="file" onChange={handlePhotoUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
+                                <div className="absolute inset-0 bg-black bg-opacity-40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition text-[10px] font-bold">DEĞİŞTİR</div>
                             </div>
-                            <button onClick={() => setView("dm")} className="w-full py-3 text-gray-400 hover:text-white text-sm font-medium transition">Sunucu istemiyorum, direkt mesajlara geç</button>
+                            <input value={customName} onChange={e => setCustomName(e.target.value)} placeholder="Görünür Adın (Boş bırakırsan Google adın kalır)" className="w-full bg-[#202225] p-3 rounded outline-none border border-gray-600 focus:border-[#5865f2]" />
+                            <button onClick={() => setView("main")} className="w-full bg-[#3ec44f] py-3 rounded font-bold hover:bg-[#34a843] transition">TalkHub'a Dal!</button>
                         </div>
                     </div>
                 </div>
             );
 
+            // 3. ANA UYGULAMA
             return (
-                <div className="flex h-screen w-full overflow-hidden">
-                    {/* SOL NAV */}
+                <div className="flex h-screen w-full overflow-hidden bg-[#36393f]">
+                    {/* SOL NAV - SUNUCULAR */}
                     <div className="w-[72px] bg-[#202225] flex flex-col items-center py-3 space-y-2">
-                        <div onClick={() => setView("dm")} className={`w-12 h-12 flex items-center justify-center cursor-pointer transition-all ${view === "dm" ? "bg-[#5865f2] rounded-xl text-white" : "bg-[#36393f] rounded-3xl hover:bg-[#5865f2] hover:rounded-xl text-gray-300"}`}>💬</div>
+                        <div onClick={() => setActiveView("dm")} className={`w-12 h-12 flex items-center justify-center cursor-pointer transition-all ${activeView === "dm" ? "bg-[#5865f2] rounded-xl" : "bg-[#36393f] rounded-3xl hover:bg-[#5865f2] hover:rounded-xl"}`}>💬</div>
                         <div className="w-8 h-[2px] bg-[#2f3136] rounded-full"></div>
-                        {serverName && (
-                            <div onClick={() => setView("server")} className={`w-12 h-12 flex items-center justify-center font-bold cursor-pointer transition-all ${view === "server" ? "bg-[#5865f2] rounded-xl text-white" : "bg-[#36393f] rounded-3xl hover:bg-[#5865f2] hover:rounded-xl text-gray-300"}`}>
-                                {serverName.charAt(0).toUpperCase()}
+                        {servers.map(s => (
+                            <div key={s.id} onClick={() => setActiveView(s.id)} className={`w-12 h-12 flex items-center justify-center font-bold cursor-pointer transition-all ${activeView === s.id ? "bg-[#5865f2] rounded-xl" : "bg-[#36393f] rounded-3xl hover:bg-[#5865f2] hover:rounded-xl"}`}>
+                                {s.name.charAt(0).toUpperCase()}
                             </div>
-                        )}
+                        ))}
+                        <div onClick={addServer} className="w-12 h-12 bg-[#36393f] rounded-3xl flex items-center justify-center text-[#3ec44f] hover:bg-[#3ec44f] hover:text-white hover:rounded-xl transition-all cursor-pointer text-2xl font-light">+</div>
                     </div>
 
-                    {/* LİSTE SÜTUNU */}
-                    <div className="w-60 bg-[#2f3136] flex flex-col">
-                        <div className="h-12 border-b border-[#26272b] flex items-center px-4 font-bold shadow-sm">
-                            {view === "server" ? serverName : "Direkt Mesajlar"}
+                    {/* LİSTE PANELİ */}
+                    <div className="w-60 bg-[#2f3136] flex flex-col border-r border-[#26272b]">
+                        <div className="h-12 flex items-center px-4 font-bold border-b border-[#26272b]">
+                            {activeView === "dm" ? "Direkt Mesajlar" : servers.find(s => s.id === activeView)?.name}
                         </div>
                         <div className="flex-1 p-3 overflow-y-auto">
-                            {view === "server" ? (
-                                <div className="bg-[#393c43] px-2 py-2 rounded text-white text-sm"># genel-sohbet</div>
-                            ) : (
+                            {activeView === "dm" ? (
                                 <div className="space-y-4">
-                                    <button onClick={addFriend} className="w-full bg-[#3ec44f] py-2 rounded font-bold text-[13px] hover:bg-[#34a843]">Arkadaş Ekle</button>
-                                    <div className="text-gray-400 text-[11px] font-bold uppercase px-1">Tüm Arkadaşlar ({friends.length})</div>
+                                    <button onClick={() => {const n = prompt("Arkadaş adı:"); if(n) setFriends([...friends, {id: Date.now(), name: n}])}} className="w-full bg-[#3ec44f] py-1.5 rounded text-sm font-bold">Arkadaş Ekle</button>
+                                    <div className="text-gray-400 text-[11px] font-bold uppercase px-1">Arkadaşlar</div>
                                     {friends.map(f => (
-                                        <div key={f.id} className="flex items-center space-x-2 p-2 hover:bg-[#393c43] rounded cursor-pointer group">
-                                            <div className="w-8 h-8 bg-gray-500 rounded-full"></div>
+                                        <div key={f.id} className="flex items-center justify-between p-2 hover:bg-[#393c43] rounded group cursor-pointer">
                                             <span className="text-sm text-gray-300 group-hover:text-white">{f.name}</span>
+                                            <button onClick={() => deleteFriend(f.id)} className="hidden group-hover:block text-red-500 text-xs font-bold">SİL</button>
                                         </div>
                                     ))}
                                 </div>
+                            ) : (
+                                <div className="bg-[#393c43] p-2 rounded text-sm"># genel-sohbet</div>
                             )}
                         </div>
-                        {/* KULLANICI PANELİ */}
+                        {/* ALT PROFİL PANELİ */}
                         <div className="bg-[#292b2f] p-2 flex items-center space-x-2">
-                            <div onClick={changePhoto} className="relative cursor-pointer group">
-                                <img src={userPhoto} className="w-8 h-8 rounded-full border border-gray-700" />
-                                <div className="absolute inset-0 bg-black bg-opacity-40 rounded-full items-center justify-center hidden group-hover:flex text-[8px] font-bold">DÜZENLE</div>
-                            </div>
+                            <img src={customPhoto} className="w-8 h-8 rounded-full border border-gray-700 object-cover" />
                             <div className="flex-1 overflow-hidden">
-                                <p className="text-xs font-bold truncate">{user.displayName}</p>
-                                <p className="text-[10px] text-gray-400">Çevrimiçi</p>
+                                <p className="text-xs font-bold truncate">{customName || user.displayName}</p>
+                                <p className="text-[10px] text-gray-500 leading-none">Çevrimiçi</p>
                             </div>
-                            <button onClick={() => auth.signOut()} className="text-[10px] text-red-400">Çıkış</button>
+                            <button onClick={() => auth.signOut()} className="text-xs text-red-400 hover:underline">Çıkış</button>
                         </div>
                     </div>
 
                     {/* CHAT PANELİ */}
-                    <div className="flex-1 bg-[#36393f] flex flex-col">
-                        <div className="h-12 border-b border-[#26272b] flex items-center px-4 shadow-sm text-gray-400 text-sm">
-                           {view === "server" ? `# genel-sohbet` : `Mesajlaşmaya başla`}
+                    <div className="flex-1 flex flex-col">
+                        <div className="h-12 border-b border-[#26272b] flex items-center px-4 shadow-sm text-gray-400 italic">
+                            {activeView === "dm" ? "Arkadaşlarınla fısıldaş..." : `# ${servers.find(s => s.id === activeView)?.name} - Genel Sohbet`}
                         </div>
-                        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                            {view === "server" ? messages.map(m => (
+                        <div className="flex-1 p-4 overflow-y-auto space-y-4">
+                            {activeView !== "dm" ? messages.map(m => (
                                 <div key={m.id} className="flex space-x-3">
-                                    <img src={m.photo} className="w-10 h-10 rounded-full" />
+                                    <img src={m.photo} className="w-10 h-10 rounded-full object-cover" />
                                     <div>
                                         <span className="font-bold text-white text-sm mr-2">{m.user}</span>
-                                        <p className="text-gray-300 text-[14px]">{m.text}</p>
+                                        <p className="text-gray-300 text-[14px] leading-relaxed">{m.text}</p>
                                     </div>
                                 </div>
                             )) : (
-                                <div className="flex flex-col items-center justify-center h-full opacity-20">
-                                    <span className="text-6xl mb-4">✨</span>
-                                    <p>Burada henüz mesaj yok...</p>
+                                <div className="h-full flex flex-col items-center justify-center opacity-20">
+                                    <span className="text-6xl mb-4">🤫</span>
+                                    <p>Burada her şey gizli...</p>
                                 </div>
                             )}
                         </div>
-                        {view === "server" && (
+                        {activeView !== "dm" && (
                             <div className="p-4 bg-[#36393f]">
-                                <input value={inputText} onChange={e => setInputText(e.target.value)} onKeyDown={sendMessage} placeholder={`${serverName} kanalına mesaj gönder`} className="w-full bg-[#40444b] rounded-lg px-4 py-3 outline-none text-[14px]" />
+                                <input value={inputText} onChange={e => setInputText(e.target.value)} onKeyDown={sendMessage} placeholder="Mesajını buraya yaz..." className="w-full bg-[#40444b] rounded-lg px-4 py-3 outline-none text-sm" />
                             </div>
                         )}
                     </div>
