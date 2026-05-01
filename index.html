@@ -14,9 +14,11 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
         body { background-color: #313338; color: #dbdee1; font-family: 'gg sans', sans-serif; overflow: hidden; }
-        .sidebar-btn { @apply w-12 h-12 bg-[#313338] text-[#23a559] rounded-3xl cursor-pointer flex items-center justify-center transition-all duration-200 hover:rounded-xl hover:bg-[#23a559] hover:text-white; }
-        .active-sidebar { @apply rounded-xl bg-[#5865f2] text-white; }
-        .modal-bg { background-color: rgba(0, 0, 0, 0.85); }
+        .sidebar-btn { @apply w-12 h-12 bg-[#313338] text-[#23a559] rounded-3xl cursor-pointer flex items-center justify-center transition-all duration-200 hover:rounded-xl hover:bg-[#5865f2] hover:text-white relative; }
+        .sidebar-btn.active::before { content: ""; position: absolute; left: -12px; height: 40px; width: 8px; background: white; border-radius: 0 4px 4px 0; }
+        .active-blue { @apply rounded-xl bg-[#5865f2] text-white; }
+        .modal-overlay { background-color: rgba(0, 0, 0, 0.85); position: fixed; inset: 0; z-index: 100; display: flex; items-center: center; justify-content: center; }
+        .th-badge { background: linear-gradient(45deg, #5865f2, #00aff4); color: white; font-size: 10px; padding: 2px 6px; border-radius: 10px; font-weight: bold; margin-left: 6px; border: 1px solid rgba(255,255,255,0.2); }
     </style>
 </head>
 <body>
@@ -25,7 +27,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // BURAYA PUBLIC KEY GELECEK
+        // EmailJS Init
         emailjs.init("FdTOZL7AMRiGdirp-"); 
 
         const firebaseConfig = {
@@ -40,140 +42,154 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        const TalkHubApp = () => {
+        const TalkHub = () => {
             const [view, setView] = useState("loading");
             const [activeTab, setActiveTab] = useState("dm");
             const [servers, setServers] = useState([]);
-            const [modal, setModal] = useState(null); // 'create', 'join' veya null
-            const [inputVal, setInputVal] = useState("");
-            const [userData, setUserData] = useState(null);
+            const [modal, setModal] = useState(null); // 'create', 'join', 'profile', 'admin'
+            const [userDoc, setUserDoc] = useState(null);
+            const [editForm, setEditForm] = useState({ nick: "", user: "", pp: "" });
+
+            const ADMIN_EMAIL = "talkhubofficiall@gmail.com";
 
             useEffect(() => {
-                auth.onAuthStateChanged(u => {
+                auth.onAuthStateChanged(async (u) => {
                     if (u) {
-                        setUserData(u);
+                        const d = await db.collection("users").doc(u.uid).get();
+                        setUserDoc({ id: u.uid, ...d.data() });
+                        setEditForm({ nick: d.data()?.nickname, user: d.data()?.username, pp: d.data()?.pp });
                         setView("app");
                         db.collection("servers").where("members", "array-contains", u.uid)
-                            .onSnapshot(s => setServers(s.docs.map(d => ({id: d.id, ...d.data()}))));
+                            .onSnapshot(s => setServers(s.docs.map(doc => ({id: doc.id, ...doc.data()}))));
                     } else setView("login");
                 });
             }, []);
 
-            const handleCreateServer = async () => {
-                if(!inputVal) return;
-                const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-                await db.collection("servers").add({
-                    name: inputVal,
-                    owner: auth.currentUser.uid,
-                    members: [auth.currentUser.uid],
-                    inviteCode: code
+            const saveProfile = async () => {
+                await db.collection("users").doc(auth.currentUser.uid).update({
+                    nickname: editForm.nick,
+                    username: editForm.user.toLowerCase(),
+                    pp: editForm.pp
                 });
+                await auth.currentUser.updateProfile({ displayName: editForm.nick });
                 setModal(null);
-                setInputVal("");
-            };
-
-            const handleJoinServer = async () => {
-                const s = await db.collection("servers").where("inviteCode", "==", inputVal.toUpperCase()).get();
-                if(!s.empty) {
-                    await s.docs[0].ref.update({ members: firebase.firestore.FieldValue.arrayUnion(auth.currentUser.uid) });
-                    setModal(null);
-                    setInputVal("");
-                } else alert("Kod geçersiz kanka!");
+                location.reload();
             };
 
             if (view === "app") return (
-                <div className="flex h-screen w-full select-none relative">
+                <div className="flex h-screen w-full relative">
                     
-                    {/* SOL SIDEBAR */}
+                    {/* SIDEBAR */}
                     <div className="w-[72px] bg-[#1e1f22] flex flex-col items-center py-3 space-y-2">
-                        <div onClick={() => setActiveTab("dm")} className={`sidebar-btn font-bold text-xs ${activeTab === "dm" ? "active-sidebar" : ""}`}>DM</div>
+                        <div onClick={() => setActiveTab("dm")} className={`sidebar-btn ${activeTab === "dm" ? "active-blue active" : ""}`}>DM</div>
                         <div className="w-8 h-[2px] bg-[#35363c] rounded-full"></div>
                         
                         {servers.map(s => (
                             <div key={s.id} onClick={() => setActiveTab(s.id)} 
-                                 className={`sidebar-btn font-bold ${activeTab === s.id ? "active-sidebar" : ""}`}>
+                                 className={`sidebar-btn font-bold ${activeTab === s.id ? "active-blue active" : ""}`}>
                                 {s.name[0].toUpperCase()}
                             </div>
                         ))}
 
                         <div onClick={() => setModal("create")} className="sidebar-btn text-2xl">+</div>
-                        <div onClick={() => setModal("join")} className="sidebar-btn text-lg">➔</div>
+                        {auth.currentUser.email === ADMIN_EMAIL && (
+                            <div onClick={() => setModal("admin")} className="sidebar-btn text-xl text-yellow-500">⚙️</div>
+                        )}
                     </div>
 
-                    {/* KANAL PANELİ */}
+                    {/* KANALLAR */}
                     <div className="w-60 bg-[#2b2d31] flex flex-col">
-                        <div className="h-12 border-b border-black/10 flex items-center px-4 font-bold shadow-sm">
-                            {activeTab === "dm" ? "DM Kutusu" : servers.find(x => x.id === activeTab)?.name}
+                        <div className="h-12 border-b border-black/10 flex items-center px-4 font-bold">
+                            {activeTab === "dm" ? "TalkHub" : servers.find(x => x.id === activeTab)?.name}
                         </div>
-                        <div className="flex-1 p-2">
-                            <div className="text-xs font-bold text-gray-400 p-2 uppercase">
-                                {activeTab === "dm" ? "Direkt Mesajlar" : "Kanallar"}
-                            </div>
-                            <div className="p-2 rounded bg-[#404249] text-white text-sm cursor-pointer">
-                                {activeTab === "dm" ? "Kanka henüz DM yok" : "# genel-sohbet"}
+                        <div className="flex-1 p-2 space-y-1">
+                            <div className="p-2 rounded bg-[#404249] text-white flex items-center">
+                                <span className="mr-2 text-gray-400">#</span> genel-sohbet
                             </div>
                         </div>
+                        
+                        {/* USER BAR */}
                         <div className="bg-[#232428] p-2 flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                                <div className="w-8 h-8 bg-[#5865f2] rounded-full"></div>
-                                <span className="text-xs font-bold truncate w-20">{userData?.displayName || "User"}</span>
+                            <div className="flex items-center space-x-2 cursor-pointer hover:bg-white/5 p-1 rounded" onClick={() => setModal("profile")}>
+                                <div className="w-8 h-8 rounded-full bg-[#5865f2] overflow-hidden">
+                                    {userDoc?.pp ? <img src={userDoc.pp} className="w-full h-full object-cover" /> : null}
+                                </div>
+                                <div className="flex flex-col">
+                                    <div className="flex items-center">
+                                        <span className="text-xs font-bold truncate w-16">{userDoc?.nickname}</span>
+                                        {auth.currentUser.email === ADMIN_EMAIL && <span className="th-badge">TH</span>}
+                                    </div>
+                                    <span className="text-[10px] text-gray-400">@{userDoc?.username}</span>
+                                </div>
                             </div>
-                            <button onClick={() => auth.signOut()} className="text-[10px] text-red-400">Çıkış</button>
                         </div>
                     </div>
 
-                    {/* ANA MESAJ ALANI */}
+                    {/* MESAJ ALANI */}
                     <div className="flex-1 flex flex-col bg-[#313338]">
                         <div className="h-12 border-b border-black/10 flex items-center px-4 font-bold">
-                            <span className="text-gray-400 mr-2">#</span>
-                            {activeTab === "dm" ? "Arkadaşların" : "genel-sohbet"}
+                            # genel-sohbet
                         </div>
-                        <div className="flex-1 flex flex-col items-center justify-center opacity-40 italic">
-                            {activeTab === "dm" ? "Burada kimse yok, arkadaş ekle kanka!" : "Bu sunucunun başlangıcı."}
+                        <div className="flex-1 flex flex-col items-center justify-center opacity-30 italic">
+                             Sohbete başla kanka!
                         </div>
                         <div className="p-4 px-6">
                             <input placeholder="Mesaj gönder..." className="w-full bg-[#383a40] p-3 rounded-lg outline-none text-sm" />
                         </div>
                     </div>
 
-                    {/* MODAL SİSTEMİ (PRO PANEL) */}
-                    {modal && (
-                        <div className="absolute inset-0 modal-bg flex items-center justify-center z-50">
-                            <div className="bg-[#313338] w-[440px] p-8 rounded-lg shadow-2xl relative">
-                                <button onClick={() => setModal(null)} className="absolute top-4 right-4 text-gray-400 hover:text-white">✕</button>
-                                <h2 className="text-2xl font-bold text-center mb-2">
-                                    {modal === "create" ? "Sunucunu Oluştur" : "Bir Sunucuya Katıl"}
-                                </h2>
-                                <p className="text-gray-400 text-center text-sm mb-6">
-                                    {modal === "create" ? "Sunucun, arkadaşlarınla takıldığın yerdir." : "Arkadaşından aldığın davet kodunu aşağıya yaz."}
-                                </p>
-                                
+                    {/* PROFİL & KULLANICI AYARLARI MODAL */}
+                    {modal === "profile" && (
+                        <div className="modal-overlay">
+                            <div className="bg-[#313338] w-[480px] p-8 rounded-lg shadow-2xl relative">
+                                <h2 className="text-2xl font-bold mb-6">Kullanıcı Ayarları</h2>
                                 <div className="space-y-4">
                                     <div>
-                                        <label className="text-xs font-bold text-gray-400 uppercase">
-                                            {modal === "create" ? "Sunucu Adı" : "Davet Kodu"}
-                                        </label>
-                                        <input autoFocus className="w-full bg-[#1e1f22] p-3 rounded mt-2 outline-none" 
-                                               value={inputVal} onChange={e => setInputVal(e.target.value)}
-                                               placeholder={modal === "create" ? "Kanka'nın Sunucusu" : "Örn: H7B2X9"} />
+                                        <label className="text-xs font-bold text-gray-400 uppercase">Görünen İsim</label>
+                                        <input className="w-full bg-[#1e1f22] p-3 rounded mt-1 outline-none" value={editForm.nick} onChange={e => setEditForm({...editForm, nick: e.target.value})} />
                                     </div>
-                                    <button onClick={modal === "create" ? handleCreateServer : handleJoinServer}
-                                            className="w-full bg-[#5865f2] py-3 rounded font-bold hover:bg-[#4752c4] transition">
-                                        {modal === "create" ? "Oluştur" : "Sunucuya Katıl"}
-                                    </button>
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-400 uppercase">Kullanıcı Adı (@)</label>
+                                        <input className="w-full bg-[#1e1f22] p-3 rounded mt-1 outline-none text-gray-500" value={editForm.user} disabled />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-400 uppercase">Profil Resmi (URL)</label>
+                                        <input className="w-full bg-[#1e1f22] p-3 rounded mt-1 outline-none" placeholder="https://..." value={editForm.pp} onChange={e => setEditForm({...editForm, pp: e.target.value})} />
+                                    </div>
+                                    <div className="flex space-x-3 pt-4">
+                                        <button onClick={saveProfile} className="flex-1 bg-[#23a559] py-2 rounded font-bold hover:bg-[#1a8344]">Değişiklikleri Kaydet</button>
+                                        <button onClick={() => setModal(null)} className="flex-1 bg-[#4e5058] py-2 rounded font-bold">Vazgeç</button>
+                                    </div>
+                                    <button onClick={() => auth.signOut()} className="w-full text-red-400 text-sm hover:underline pt-2">Çıkış Yap</button>
                                 </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ADMIN PANELİ MODAL */}
+                    {modal === "admin" && (
+                        <div className="modal-overlay">
+                            <div className="bg-[#313338] w-[600px] p-8 rounded-lg shadow-2xl relative">
+                                <h2 className="text-2xl font-bold mb-4 text-yellow-500">TH Yönetim Paneli</h2>
+                                <div className="bg-[#1e1f22] p-4 rounded mb-6 text-sm">
+                                    <p>Buradan sunucuları denetleyebilir ve ban işlemlerini yürütebilirsin kanka.</p>
+                                </div>
+                                <div className="h-60 overflow-y-auto space-y-2 pr-2">
+                                    <p className="text-gray-500 italic">Sistem kayıtları yükleniyor...</p>
+                                </div>
+                                <button onClick={() => setModal(null)} className="mt-6 w-full bg-[#5865f2] py-2 rounded font-bold">Paneli Kapat</button>
                             </div>
                         </div>
                     )}
                 </div>
             );
 
-            if (view === "login") return <div className="h-screen flex items-center justify-center text-2xl font-bold">Lütfen Giriş Yap kanka...</div>;
+            if (view === "login") return <div className="h-screen flex items-center justify-center font-bold">TalkHub | Lütfen Giriş Yap kanka...</div>;
             return null;
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<TalkHubApp />);
+        root.render(<TalkHub />);
     </script>
 </body>
 </html>
