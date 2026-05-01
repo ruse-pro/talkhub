@@ -12,11 +12,13 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
-        body { background-color: #313338; color: #dbdee1; font-family: sans-serif; overflow: hidden; }
-        .th-logo { @apply w-12 h-12 flex items-center justify-center bg-[#5865f2] text-white font-black rounded-[16px] transition-all hover:rounded-[12px] cursor-pointer; }
-        .sidebar-btn { @apply w-12 h-12 bg-[#313338] text-[#23a559] rounded-3xl flex items-center justify-center transition-all hover:rounded-xl hover:bg-[#5865f2] hover:text-white cursor-pointer relative; }
-        .sidebar-btn.active::before { content: ""; position: absolute; left: -12px; height: 35px; width: 4px; background: white; border-radius: 0 4px 4px 0; }
-        .modal-overlay { background: rgba(0,0,0,0.85); position: fixed; inset: 0; z-index: 999; display: flex; align-items: center; justify-content: center; }
+        body { background-color: #1e1f22; color: #dbdee1; font-family: 'gg sans', sans-serif; overflow: hidden; }
+        .server-icon { @apply w-12 h-12 rounded-[24px] bg-[#313338] transition-all duration-200 hover:rounded-[15px] cursor-pointer flex items-center justify-center bg-cover bg-center overflow-hidden; }
+        .server-icon.active { @apply rounded-[15px] bg-[#5865f2]; }
+        .modal-bg { background: rgba(0, 0, 0, 0.9); position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+        .admin-badge { background: linear-gradient(90deg, #ffcc33, #ffb347); color: #000; font-size: 9px; padding: 1px 4px; border-radius: 3px; font-weight: 800; margin-left: 5px; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #1a1b1e; border-radius: 10px; }
     </style>
 </head>
 <body>
@@ -39,145 +41,179 @@
 
         const TalkHubApp = () => {
             const [user, setUser] = useState(null);
-            const [loading, setLoading] = useState(true);
             const [userData, setUserData] = useState(null);
             const [servers, setServers] = useState([]);
             const [activeTab, setActiveTab] = useState("dm");
             const [modal, setModal] = useState(null);
-            
-            // Input States
-            const [serverName, setServerName] = useState("");
-            const [newName, setNewName] = useState("");
-            const [email, setEmail] = useState("");
-            const [password, setPassword] = useState("");
+            const [loading, setLoading] = useState(true);
+
+            // Form States
+            const [inputName, setInputName] = useState("");
+            const [inputPhoto, setInputPhoto] = useState("");
+            const [banTarget, setBanTarget] = useState("");
+
+            const ADMIN_EMAIL = "talkhubofficiall@gmail.com";
 
             useEffect(() => {
                 const unsubscribe = auth.onAuthStateChanged(async (u) => {
                     if (u) {
+                        const snap = await db.collection("users").doc(u.uid).get();
+                        if (snap.exists) {
+                            const d = snap.data();
+                            if (d.banned) {
+                                alert("BU HESAP ENGELLENMİŞTİR!");
+                                auth.signOut();
+                                return;
+                            }
+                            setUserData(d);
+                        }
                         setUser(u);
-                        // Kullanıcı verisini çek
-                        const userDoc = await db.collection("users").doc(u.uid).get();
-                        if (userDoc.exists) setUserData(userDoc.data());
-                        
-                        // Sunucuları çek
                         db.collection("servers").where("members", "array-contains", u.uid)
-                          .onSnapshot(snap => {
-                              setServers(snap.docs.map(doc => ({id: doc.id, ...doc.data()})));
-                          });
-                    } else {
-                        setUser(null);
-                    }
+                          .onSnapshot(s => setServers(s.docs.map(doc => ({id: doc.id, ...doc.data()}))));
+                    } else { setUser(null); }
                     setLoading(false);
                 });
                 return () => unsubscribe();
             }, []);
 
-            // Sunucu Ekleme Fonksiyonu
-            const createServer = async () => {
-                if(!serverName) return;
-                try {
-                    const newServer = {
-                        name: serverName,
-                        owner: user.uid,
-                        members: [user.uid],
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    };
-                    await db.collection("servers").add(newServer);
-                    setServerName("");
-                    setModal(null);
-                    alert("Sunucu başarıyla oluşturuldu!");
-                } catch (e) { alert("Hata: " + e.message); }
+            const currentServer = servers.find(s => s.id === activeTab);
+
+            // --- FONKSİYONLAR ---
+            const updateProfile = async () => {
+                await db.collection("users").doc(user.uid).update({
+                    nickname: inputName || userData.nickname,
+                    photoURL: inputPhoto || userData.photoURL
+                });
+                setModal(null);
             };
 
-            const handleLogin = async () => {
-                try { await auth.signInWithEmailAndPassword(email, password); } 
-                catch (e) { alert("Giriş başarısız kanka."); }
+            const createServer = async () => {
+                if(!inputName) return;
+                await db.collection("servers").add({
+                    name: inputName,
+                    icon: inputPhoto || "",
+                    owner: user.uid,
+                    members: [user.uid],
+                    bannedUsers: []
+                });
+                setModal(null);
+            };
+
+            const banUserByName = async () => {
+                if (user.email !== ADMIN_EMAIL) return;
+                const snap = await db.collection("users").where("nickname", "==", banTarget).get();
+                if (snap.empty) return alert("Kullanıcı bulunamadı!");
+                
+                const batch = db.batch();
+                snap.forEach(doc => {
+                    batch.update(doc.ref, { banned: true });
+                });
+                await batch.commit();
+                alert(`${banTarget} isimli kullanıcı ve bağlı IP'ler yasaklandı!`);
+                setBanTarget("");
             };
 
             if (loading) return <div className="h-screen bg-[#1e1f22] flex items-center justify-center text-white">Yükleniyor...</div>;
 
-            if (!user) return (
-                <div className="h-screen flex items-center justify-center bg-[#1e1f22]">
-                    <div className="bg-[#313338] p-8 rounded-xl w-80 text-center">
-                        <div className="th-logo mx-auto mb-6">TH</div>
-                        <input className="w-full bg-[#1e1f22] p-2 rounded mb-2 text-white" placeholder="E-posta" onChange={e => setEmail(e.target.value)} />
-                        <input type="password" className="w-full bg-[#1e1f22] p-2 rounded mb-4 text-white" placeholder="Şifre" onChange={e => setPassword(e.target.value)} />
-                        <button onClick={handleLogin} className="w-full bg-[#5865f2] py-2 rounded font-bold text-white">Giriş Yap</button>
-                    </div>
-                </div>
-            );
-
             return (
                 <div className="flex h-screen w-full">
-                    {/* SIDEBAR */}
-                    <div className="w-[72px] bg-[#1e1f22] flex flex-col items-center py-3 space-y-2 shrink-0">
-                        <div onClick={() => setActiveTab("dm")} className={`th-logo ${activeTab === "dm" ? "rounded-xl" : ""}`}>TH</div>
+                    {/* SOL PANEL (SUNUCULAR) */}
+                    <div className="w-[72px] bg-[#1e1f22] flex flex-col items-center py-3 space-y-2 shrink-0 border-r border-black/20">
+                        <div onClick={() => setActiveTab("dm")} className={`server-icon ${activeTab === "dm" ? "active" : ""}`}>
+                            <span className="text-white font-bold">TH</span>
+                        </div>
                         <div className="w-8 h-[2px] bg-[#35363c] rounded-full"></div>
-                        
                         {servers.map(s => (
                             <div key={s.id} onClick={() => setActiveTab(s.id)} 
-                                 className={`sidebar-btn ${activeTab === s.id ? "active bg-[#5865f2] text-white rounded-xl" : ""}`}>
-                                {s.name[0].toUpperCase()}
+                                 className={`server-icon ${activeTab === s.id ? "active" : ""}`}
+                                 style={{ backgroundImage: s.icon ? `url(${s.icon})` : 'none' }}>
+                                {!s.icon && s.name[0].toUpperCase()}
                             </div>
                         ))}
-
-                        <div onClick={() => setModal("createServer")} className="sidebar-btn text-2xl font-light">+</div>
+                        <div onClick={() => setModal("addServer")} className="server-icon text-[#23a559] hover:bg-[#23a559] hover:text-white text-2xl">+</div>
                     </div>
 
-                    {/* PANEL */}
+                    {/* KANAL / ARKADAŞ PANELİ */}
                     <div className="w-60 bg-[#2b2d31] flex flex-col shrink-0">
-                        <div className="h-12 flex items-center px-4 font-bold border-b border-black/20 text-white truncate shadow-sm">
-                            {activeTab === "dm" ? "TalkHub" : servers.find(s => s.id === activeTab)?.name}
+                        <div className="h-12 flex items-center px-4 font-bold border-b border-black/20 text-white shadow-sm">
+                            {activeTab === "dm" ? "TalkHub Ana Sayfa" : currentServer?.name}
                         </div>
-                        <div className="flex-1 p-2">
+                        <div className="flex-1 p-3 space-y-2">
                             {activeTab === "dm" ? (
-                                <div className="p-2 rounded bg-[#3f4147] text-white cursor-pointer font-medium">👥 Arkadaşlar</div>
+                                <div className="p-2 rounded bg-[#3f4147] text-white flex items-center space-x-2">
+                                    <span>👥</span> <span>Arkadaşlar</span>
+                                </div>
                             ) : (
-                                <div className="text-sm text-gray-400 p-2"># genel-sohbet</div>
+                                <div className="text-gray-400 text-sm p-1"># genel-sohbet</div>
                             )}
                         </div>
                         
+                        {/* KULLANICI BARI */}
                         <div className="bg-[#232428] p-2 flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                                <div className="w-8 h-8 rounded-full bg-[#5865f2] flex items-center justify-center text-[10px] text-white font-bold">TH</div>
-                                <span className="text-xs font-bold text-white truncate w-24">{userData?.nickname || user.email.split('@')[0]}</span>
+                            <div className="flex items-center space-x-2 overflow-hidden">
+                                <div className="w-8 h-8 rounded-full bg-cover bg-center bg-[#5865f2]" 
+                                     style={{ backgroundImage: `url(${userData?.photoURL || 'https://via.placeholder.com/32'})` }}>
+                                </div>
+                                <div className="flex flex-col truncate">
+                                    <span className="text-xs font-bold text-white flex items-center">
+                                        {userData?.nickname} {user.email === ADMIN_EMAIL && <span className="admin-badge">ADMİN</span>}
+                                    </span>
+                                    <span className="text-[10px] text-gray-400">Çevrimiçi</span>
+                                </div>
                             </div>
-                            <span className="text-gray-400 cursor-pointer text-lg hover:text-white transition" onClick={() => setModal("userSettings")}>⚙️</span>
+                            <span onClick={() => setModal("profile")} className="text-gray-400 hover:text-white cursor-pointer text-lg">⚙️</span>
                         </div>
                     </div>
 
-                    {/* ANA ALAN */}
-                    <div className="flex-1 bg-[#313338] flex items-center justify-center flex-col text-center p-4">
-                        <h1 className="text-2xl font-bold text-white mb-2">
-                            {activeTab === "dm" ? `Selam, ${userData?.nickname || 'Kanka'}!` : `${servers.find(s => s.id === activeTab)?.name} Sunucusuna Hoş Geldin!`}
-                        </h1>
-                        <p className="text-gray-400">Burada henüz bir mesaj yok.</p>
+                    {/* ANA MESAJ ALANI */}
+                    <div className="flex-1 bg-[#313338] flex flex-col">
+                        <div className="h-12 border-b border-black/20 flex items-center px-4 justify-between">
+                            <span className="text-white font-bold"># {activeTab === "dm" ? "ana-sayfa" : "genel"}</span>
+                            {user.email === ADMIN_EMAIL && (
+                                <button onClick={() => setModal("admin")} className="text-[10px] bg-red-600 px-2 py-1 rounded text-white font-bold hover:bg-red-700">YÖNETİM</button>
+                            )}
+                        </div>
+                        <div className="flex-1 flex flex-col items-center justify-center p-10 text-center">
+                            <img src={currentServer?.icon || "https://via.placeholder.com/100"} className="w-20 h-20 rounded-3xl mb-4 shadow-2xl" />
+                            <h2 className="text-2xl font-bold text-white">{currentServer?.name || "TalkHub'a Hoş Geldin"}</h2>
+                            <p className="text-gray-400 mt-2">Burası senin krallığın. Sohbet etmeye hemen başla.</p>
+                        </div>
                     </div>
 
-                    {/* SUNUCU EKLEME MODALI */}
-                    {modal === "createServer" && (
-                        <div className="modal-overlay" onClick={() => setModal(null)}>
-                            <div className="bg-[#313338] p-6 rounded-xl w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
-                                <h2 className="text-white text-lg font-bold mb-4 text-center">Sunucunu Oluştur</h2>
-                                <input className="w-full bg-[#1e1f22] p-3 rounded mb-4 text-white outline-none" 
-                                       placeholder="Sunucu Adı" value={serverName} onChange={e => setServerName(e.target.value)} />
+                    {/* MODALLAR */}
+                    {modal === "profile" && (
+                        <div className="modal-bg" onClick={() => setModal(null)}>
+                            <div className="bg-[#313338] p-8 rounded-2xl w-96 shadow-2xl" onClick={e => e.stopPropagation()}>
+                                <h3 className="text-white font-bold text-xl mb-6">Profilini Özelleştir</h3>
+                                <label className="text-[10px] font-bold text-gray-400 uppercase">Yeni İsim</label>
+                                <input className="w-full bg-[#1e1f22] p-2 rounded mb-4 mt-1 text-white outline-none" onChange={e => setInputName(e.target.value)} placeholder={userData.nickname} />
+                                <label className="text-[10px] font-bold text-gray-400 uppercase">Profil Fotoğrafı URL</label>
+                                <input className="w-full bg-[#1e1f22] p-2 rounded mb-6 mt-1 text-white outline-none" onChange={e => setInputPhoto(e.target.value)} placeholder="https://..." />
+                                <button onClick={updateProfile} className="w-full bg-[#5865f2] py-2 rounded font-bold text-white hover:bg-[#4752c4]">Güncelle</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {modal === "addServer" && (
+                        <div className="modal-bg" onClick={() => setModal(null)}>
+                            <div className="bg-[#313338] p-8 rounded-2xl w-96" onClick={e => e.stopPropagation()}>
+                                <h3 className="text-white font-bold text-xl mb-6">Sunucu Oluştur</h3>
+                                <input className="w-full bg-[#1e1f22] p-2 rounded mb-4 text-white outline-none" placeholder="Sunucu Adı" onChange={e => setInputName(e.target.value)} />
+                                <input className="w-full bg-[#1e1f22] p-2 rounded mb-6 text-white outline-none" placeholder="Sunucu Fotoğraf URL" onChange={e => setInputPhoto(e.target.value)} />
                                 <button onClick={createServer} className="w-full bg-[#23a559] py-2 rounded font-bold text-white hover:bg-[#1a7a42]">Oluştur</button>
                             </div>
                         </div>
                     )}
 
-                    {/* HESAP AYARLARI MODALI */}
-                    {modal === "userSettings" && (
-                        <div className="modal-overlay" onClick={() => setModal(null)}>
-                            <div className="bg-[#313338] p-6 rounded-xl w-80 shadow-2xl" onClick={e => e.stopPropagation()}>
-                                <h2 className="text-white text-lg font-bold mb-4">Hesap Ayarları</h2>
-                                <input className="w-full bg-[#1e1f22] p-3 rounded mb-4 text-white outline-none" 
-                                       placeholder="Yeni Takma Ad" value={newName} onChange={e => setNewName(e.target.value)} />
-                                <button onClick={async () => {
-                                    await db.collection("users").doc(user.uid).update({ nickname: newName });
-                                    setUserData({...userData, nickname: newName});
-                                    setModal(null);
-                                }} className="w-full bg-[#5865f2] py-2 rounded font-bold text-white">Güncelle</button>
+                    {modal === "admin" && (
+                        <div className="modal-bg" onClick={() => setModal(null)}>
+                            <div className="bg-[#111214] p-8 rounded-2xl w-[400px] border border-red-900/50" onClick={e => e.stopPropagation()}>
+                                <h3 className="text-red-500 font-black text-xl mb-2 italic">ADMİN PANELİ</h3>
+                                <p className="text-gray-500 text-xs mb-6 uppercase tracking-widest">Kullanıcı & IP Engelleme</p>
+                                <input className="w-full bg-[#1e1f22] p-3 rounded mb-4 text-white border border-red-900/20 outline-none" 
+                                       placeholder="Banlanacak Kişinin İsmi" value={banTarget} onChange={e => setBanTarget(e.target.value)} />
+                                <button onClick={banUserByName} className="w-full bg-red-600 py-3 rounded font-black text-white hover:bg-red-800 transition">SİSTEMDEN AT (BAN)</button>
+                                <button onClick={() => setModal(null)} className="w-full mt-4 text-gray-500 text-xs hover:text-white">PANELİ KAPAT</button>
                             </div>
                         </div>
                     )}
