@@ -13,11 +13,10 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
-        body { background-color: #313338; color: #dbdee1; font-family: 'gg sans', 'Noto Sans', sans-serif; }
-        .sidebar-icon { @apply w-12 h-12 bg-[#313338] text-[#23a559] rounded-3xl cursor-pointer flex items-center justify-center transition-all duration-200 hover:rounded-xl hover:bg-[#23a559] hover:text-white; }
+        body { background-color: #313338; color: #dbdee1; font-family: 'gg sans', sans-serif; overflow: hidden; }
+        .sidebar-btn { @apply w-12 h-12 bg-[#313338] text-[#23a559] rounded-3xl cursor-pointer flex items-center justify-center transition-all duration-200 hover:rounded-xl hover:bg-[#23a559] hover:text-white; }
         .active-sidebar { @apply rounded-xl bg-[#5865f2] text-white; }
-        .discord-scroll::-webkit-scrollbar { width: 4px; }
-        .discord-scroll::-webkit-scrollbar-thumb { background: #1a1b1e; border-radius: 10px; }
+        .modal-bg { background-color: rgba(0, 0, 0, 0.85); }
     </style>
 </head>
 <body>
@@ -26,8 +25,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // --- AYARLAR ---
-        // EmailJS Public Key'ini Account > API Keys kısmından alıp buraya yapıştır kanka!
+        // BURAYA PUBLIC KEY GELECEK
         emailjs.init("FdTOZL7AMRiGdirp-"); 
 
         const firebaseConfig = {
@@ -42,124 +40,140 @@
         const auth = firebase.auth();
         const db = firebase.firestore();
 
-        const TalkHub = () => {
-            const [page, setPage] = useState("loading");
-            const [user, setUser] = useState(null);
+        const TalkHubApp = () => {
+            const [view, setView] = useState("loading");
+            const [activeTab, setActiveTab] = useState("dm");
             const [servers, setServers] = useState([]);
-            const [activeServer, setActiveServer] = useState("home");
-            const [form, setForm] = useState({ email: "", pass: "", nick: "", user: "" });
-            const [otp, setOtp] = useState({ sent: "", user: "" });
+            const [modal, setModal] = useState(null); // 'create', 'join' veya null
+            const [inputVal, setInputVal] = useState("");
+            const [userData, setUserData] = useState(null);
 
             useEffect(() => {
-                auth.onAuthStateChanged(async (u) => {
+                auth.onAuthStateChanged(u => {
                     if (u) {
-                        const banCheck = await db.collection("bannedUsers").doc(u.uid).get();
-                        if (banCheck.exists) {
-                            alert("Kalıcı olarak banlısın kanka!");
-                            auth.signOut();
-                        } else {
-                            setUser(u);
-                            setPage("app");
-                            loadData(u.uid);
-                        }
-                    } else {
-                        setPage("login");
-                    }
+                        setUserData(u);
+                        setView("app");
+                        db.collection("servers").where("members", "array-contains", u.uid)
+                            .onSnapshot(s => setServers(s.docs.map(d => ({id: d.id, ...d.data()}))));
+                    } else setView("login");
                 });
             }, []);
 
-            const loadData = (uid) => {
-                db.collection("servers").where("members", "array-contains", uid)
-                    .onSnapshot(s => setServers(s.docs.map(d => ({ id: d.id, ...d.data() }))));
-            };
-
-            const handleRegister = (e) => {
-                e.preventDefault();
-                const code = Math.floor(100000 + Math.random() * 900000).toString();
-                setOtp({ ...otp, sent: code });
-                emailjs.send("service_lz0s5ir", "template_h4u1jp8", { to_email: form.email, code: code })
-                    .then(() => setPage("otp")).catch(err => alert("Mail hatası!"));
-            };
-
-            const createServer = async () => {
-                const n = prompt("Sunucu Adı:");
-                if (!n) return;
+            const handleCreateServer = async () => {
+                if(!inputVal) return;
                 const code = Math.random().toString(36).substring(2, 8).toUpperCase();
                 await db.collection("servers").add({
-                    name: n, owner: auth.currentUser.uid, members: [auth.currentUser.uid], inviteCode: code
+                    name: inputVal,
+                    owner: auth.currentUser.uid,
+                    members: [auth.currentUser.uid],
+                    inviteCode: code
                 });
+                setModal(null);
+                setInputVal("");
             };
 
-            // --- GÖRÜNÜMLER ---
-            if (page === "login") return (
-                <div className="h-screen flex items-center justify-center bg-[#1e1f22]">
-                    <form className="bg-[#313338] p-10 rounded-lg shadow-2xl w-96 border border-black/20" 
-                          onSubmit={(e) => { e.preventDefault(); auth.signInWithEmailAndPassword(form.email, form.pass); }}>
-                        <h1 className="text-2xl font-bold text-center mb-2 text-white">TalkHub | Sohbet Et!</h1>
-                        <p className="text-gray-400 text-center mb-8 text-sm">Tekrar hoş geldin kanka!</p>
-                        <div className="space-y-4">
-                            <input type="email" placeholder="E-posta" className="w-full bg-[#1e1f22] p-3 rounded outline-none focus:ring-1 ring-[#5865f2]" onChange={e => setForm({...form, email: e.target.value})} />
-                            <input type="password" placeholder="Şifre" className="w-full bg-[#1e1f22] p-3 rounded outline-none focus:ring-1 ring-[#5865f2]" onChange={e => setForm({...form, pass: e.target.value})} />
-                            <button type="submit" className="w-full bg-[#5865f2] py-3 rounded font-bold hover:bg-[#4752c4] transition">Giriş Yap</button>
-                            <p className="text-center text-xs text-gray-400">Hesabın yok mu? <span className="text-[#00aff4] cursor-pointer" onClick={() => setPage("signup")}>Kaydol</span></p>
-                        </div>
-                    </form>
-                </div>
-            );
+            const handleJoinServer = async () => {
+                const s = await db.collection("servers").where("inviteCode", "==", inputVal.toUpperCase()).get();
+                if(!s.empty) {
+                    await s.docs[0].ref.update({ members: firebase.firestore.FieldValue.arrayUnion(auth.currentUser.uid) });
+                    setModal(null);
+                    setInputVal("");
+                } else alert("Kod geçersiz kanka!");
+            };
 
-            if (page === "app") return (
-                <div className="flex h-screen w-full select-none overflow-hidden">
-                    {/* SOL PANEL (SUNUCULAR) */}
+            if (view === "app") return (
+                <div className="flex h-screen w-full select-none relative">
+                    
+                    {/* SOL SIDEBAR */}
                     <div className="w-[72px] bg-[#1e1f22] flex flex-col items-center py-3 space-y-2">
-                        <div onClick={() => setActiveServer("home")} className={`sidebar-icon ${activeServer === "home" ? "active-sidebar" : ""}`}>TH</div>
+                        <div onClick={() => setActiveTab("dm")} className={`sidebar-btn font-bold text-xs ${activeTab === "dm" ? "active-sidebar" : ""}`}>DM</div>
                         <div className="w-8 h-[2px] bg-[#35363c] rounded-full"></div>
+                        
                         {servers.map(s => (
-                            <div key={s.id} onClick={() => setActiveServer(s.id)} className={`sidebar-icon font-bold ${activeServer === s.id ? "active-sidebar" : ""}`}>
+                            <div key={s.id} onClick={() => setActiveTab(s.id)} 
+                                 className={`sidebar-btn font-bold ${activeTab === s.id ? "active-sidebar" : ""}`}>
                                 {s.name[0].toUpperCase()}
                             </div>
                         ))}
-                        <button onClick={createServer} className="sidebar-icon text-2xl">+</button>
+
+                        <div onClick={() => setModal("create")} className="sidebar-btn text-2xl">+</div>
+                        <div onClick={() => setModal("join")} className="sidebar-btn text-lg">➔</div>
                     </div>
 
-                    {/* ORTA PANEL (KANALLAR) */}
+                    {/* KANAL PANELİ */}
                     <div className="w-60 bg-[#2b2d31] flex flex-col">
-                        <div className="h-12 border-b border-black/20 flex items-center px-4 font-bold shadow-sm">
-                            {activeServer === "home" ? "Ana Sayfa" : servers.find(s => s.id === activeServer)?.name}
+                        <div className="h-12 border-b border-black/10 flex items-center px-4 font-bold shadow-sm">
+                            {activeTab === "dm" ? "DM Kutusu" : servers.find(x => x.id === activeTab)?.name}
                         </div>
-                        <div className="flex-1 p-3 text-xs text-gray-400 font-bold uppercase tracking-widest">
-                            # genel-sohbet
+                        <div className="flex-1 p-2">
+                            <div className="text-xs font-bold text-gray-400 p-2 uppercase">
+                                {activeTab === "dm" ? "Direkt Mesajlar" : "Kanallar"}
+                            </div>
+                            <div className="p-2 rounded bg-[#404249] text-white text-sm cursor-pointer">
+                                {activeTab === "dm" ? "Kanka henüz DM yok" : "# genel-sohbet"}
+                            </div>
                         </div>
                         <div className="bg-[#232428] p-2 flex items-center justify-between">
                             <div className="flex items-center space-x-2">
-                                <div className="w-8 h-8 bg-[#5865f2] rounded-full flex items-center justify-center text-xs">U</div>
-                                <span className="text-xs font-bold truncate w-24">{user?.displayName || "Kullanıcı"}</span>
+                                <div className="w-8 h-8 bg-[#5865f2] rounded-full"></div>
+                                <span className="text-xs font-bold truncate w-20">{userData?.displayName || "User"}</span>
                             </div>
-                            <button onClick={() => auth.signOut()} className="text-[10px] hover:text-red-400">Çıkış</button>
+                            <button onClick={() => auth.signOut()} className="text-[10px] text-red-400">Çıkış</button>
                         </div>
                     </div>
 
-                    {/* ANA SOHBET */}
-                    <div className="flex-1 flex flex-col">
-                        <div className="h-12 border-b border-black/20 flex items-center px-4 font-bold">
-                            <span className="text-gray-400 mr-2">#</span> genel-sohbet
+                    {/* ANA MESAJ ALANI */}
+                    <div className="flex-1 flex flex-col bg-[#313338]">
+                        <div className="h-12 border-b border-black/10 flex items-center px-4 font-bold">
+                            <span className="text-gray-400 mr-2">#</span>
+                            {activeTab === "dm" ? "Arkadaşların" : "genel-sohbet"}
                         </div>
-                        <div className="flex-1 p-6 flex flex-col items-center justify-center text-gray-500 opacity-50 italic">
-                            {activeServer === "home" ? "Bir sunucuya gir veya DM başlat kanka!" : "Sohbet odası henüz boş."}
+                        <div className="flex-1 flex flex-col items-center justify-center opacity-40 italic">
+                            {activeTab === "dm" ? "Burada kimse yok, arkadaş ekle kanka!" : "Bu sunucunun başlangıcı."}
                         </div>
                         <div className="p-4 px-6">
-                            <div className="bg-[#383a40] p-3 rounded-lg flex items-center shadow-inner">
-                                <input placeholder="Mesaj gönder..." className="bg-transparent w-full outline-none text-sm px-2" />
-                            </div>
+                            <input placeholder="Mesaj gönder..." className="w-full bg-[#383a40] p-3 rounded-lg outline-none text-sm" />
                         </div>
                     </div>
+
+                    {/* MODAL SİSTEMİ (PRO PANEL) */}
+                    {modal && (
+                        <div className="absolute inset-0 modal-bg flex items-center justify-center z-50">
+                            <div className="bg-[#313338] w-[440px] p-8 rounded-lg shadow-2xl relative">
+                                <button onClick={() => setModal(null)} className="absolute top-4 right-4 text-gray-400 hover:text-white">✕</button>
+                                <h2 className="text-2xl font-bold text-center mb-2">
+                                    {modal === "create" ? "Sunucunu Oluştur" : "Bir Sunucuya Katıl"}
+                                </h2>
+                                <p className="text-gray-400 text-center text-sm mb-6">
+                                    {modal === "create" ? "Sunucun, arkadaşlarınla takıldığın yerdir." : "Arkadaşından aldığın davet kodunu aşağıya yaz."}
+                                </p>
+                                
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-400 uppercase">
+                                            {modal === "create" ? "Sunucu Adı" : "Davet Kodu"}
+                                        </label>
+                                        <input autoFocus className="w-full bg-[#1e1f22] p-3 rounded mt-2 outline-none" 
+                                               value={inputVal} onChange={e => setInputVal(e.target.value)}
+                                               placeholder={modal === "create" ? "Kanka'nın Sunucusu" : "Örn: H7B2X9"} />
+                                    </div>
+                                    <button onClick={modal === "create" ? handleCreateServer : handleJoinServer}
+                                            className="w-full bg-[#5865f2] py-3 rounded font-bold hover:bg-[#4752c4] transition">
+                                        {modal === "create" ? "Oluştur" : "Sunucuya Katıl"}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
 
-            return <div className="h-screen flex items-center justify-center italic opacity-30 bg-[#1e1f22]">Yükleniyor...</div>;
+            if (view === "login") return <div className="h-screen flex items-center justify-center text-2xl font-bold">Lütfen Giriş Yap kanka...</div>;
+            return null;
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<TalkHub />);
+        root.render(<TalkHubApp />);
     </script>
 </body>
 </html>
