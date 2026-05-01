@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TalkHub | Kasrga Edition</title>
+    <title>TalkHub | Sohbet Et!</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
@@ -12,12 +12,11 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
-        body { background-color: #1e1f22; color: #dbdee1; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; }
+        body { background-color: #1e1f22; color: #dbdee1; font-family: 'gg sans', sans-serif; overflow: hidden; }
         .sidebar-icon { @apply w-12 h-12 rounded-[24px] bg-[#313338] text-[#23a559] flex items-center justify-center transition-all duration-300 hover:rounded-[15px] hover:bg-[#23a559] hover:text-white cursor-pointer mb-2; }
         .sidebar-icon.active { @apply rounded-[15px] bg-[#5865f2] text-white; }
-        .voice-active { @apply border-2 border-green-500 animate-pulse; }
-        .modal-overlay { background: rgba(0,0,0,0.92); position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px); }
-        .input-dark { @apply w-full bg-[#1e1f22] p-3 rounded-lg text-white outline-none border border-transparent focus:border-[#5865f2] transition-all; }
+        .modal-overlay { background: rgba(0,0,0,0.9); position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+        .input-field { @apply w-full bg-[#1e1f22] p-3 rounded-lg text-white outline-none border border-transparent focus:border-[#5865f2] mb-4; }
     </style>
 </head>
 <body>
@@ -41,178 +40,155 @@
         const App = () => {
             const [user, setUser] = useState(null);
             const [userData, setUserData] = useState(null);
+            const [isLogin, setIsLogin] = useState(true);
             const [loading, setLoading] = useState(true);
             const [activeTab, setActiveTab] = useState("friends");
             const [servers, setServers] = useState([]);
+            const [friendRequests, setRequests] = useState([]);
             const [modal, setModal] = useState(null);
-            const [inVoice, setInVoice] = useState(false);
             
-            // UI States
-            const [email, setEmail] = useState("");
-            const [pass, setPass] = useState("");
-            const [friendName, setFriendName] = useState("");
-            const [serverInput, setServerInput] = useState({ name: "", icon: "" });
+            const [authForm, setAuthForm] = useState({ email: "", pass: "", nick: "" });
+            const [targetNick, setTargetNick] = useState("");
 
             useEffect(() => {
                 const unsubscribe = auth.onAuthStateChanged(async (u) => {
                     if (u) {
-                        const userRef = db.collection("users").doc(u.uid);
-                        const snap = await userRef.get();
-                        if (snap.exists) {
-                            setUserData(snap.data());
-                        } else {
-                            const newProfile = { nickname: u.email.split('@')[0], photo: "", friends: [], banned: false };
-                            await userRef.set(newProfile);
-                            setUserData(newProfile);
-                        }
                         setUser(u);
-                        // Sunucuları çek
+                        // Kullanıcı verisini ve İstekleri dinle
+                        db.collection("users").doc(u.uid).onSnapshot(snap => {
+                            if (snap.exists) setUserData(snap.data());
+                        });
+
+                        db.collection("requests").where("to", "==", u.uid).where("status", "==", "pending")
+                          .onSnapshot(s => setRequests(s.docs.map(d => ({id: d.id, ...d.data()}))));
+
                         db.collection("servers").where("members", "array-contains", u.uid)
                           .onSnapshot(s => setServers(s.docs.map(d => ({id: d.id, ...d.data()}))));
-                    } else {
-                        setUser(null);
-                    }
+                    } else { setUser(null); }
                     setLoading(false);
                 });
                 return () => unsubscribe();
             }, []);
 
-            const handleLogin = () => auth.signInWithEmailAndPassword(email, pass).catch(e => alert("Giriş Hatası!"));
+            const handleAuth = async () => {
+                try {
+                    if (isLogin) {
+                        await auth.signInWithEmailAndPassword(authForm.email, authForm.pass);
+                    } else {
+                        const res = await auth.createUserWithEmailAndPassword(authForm.email, authForm.pass);
+                        await db.collection("users").doc(res.user.uid).set({
+                            nickname: authForm.nick,
+                            friends: [],
+                            photo: "",
+                            uid: res.user.uid
+                        });
+                    }
+                } catch (e) { alert("Hata: " + e.message); }
+            };
 
-            const addFriend = async () => {
-                const friendSnap = await db.collection("users").where("nickname", "==", friendName).get();
-                if (friendSnap.empty) return alert("Kullanıcı bulunamadı!");
-                await db.collection("users").doc(user.uid).update({
-                    friends: firebase.firestore.FieldValue.arrayUnion(friendName)
+            const sendFriendRequest = async () => {
+                const snap = await db.collection("users").where("nickname", "==", targetNick).get();
+                if (snap.empty) return alert("Kullanıcı bulunamadı!");
+                const targetUser = snap.docs[0].data();
+                
+                await db.collection("requests").add({
+                    from: user.uid,
+                    fromNick: userData.nickname,
+                    to: targetUser.uid,
+                    status: "pending"
                 });
-                alert("Arkadaş eklendi!");
+                alert("İstek gönderildi!");
                 setModal(null);
             };
 
-            const createServer = async () => {
-                await db.collection("servers").add({
-                    name: serverInput.name,
-                    icon: serverInput.icon,
-                    owner: user.uid,
-                    members: [user.uid]
-                });
-                setModal(null);
+            const respondRequest = async (req, status) => {
+                if (status === "accepted") {
+                    await db.collection("users").doc(user.uid).update({
+                        friends: firebase.firestore.FieldValue.arrayUnion(req.fromNick)
+                    });
+                    // Karşı tarafın listesine de ekle
+                    await db.collection("users").doc(req.from).update({
+                        friends: firebase.firestore.FieldValue.arrayUnion(userData.nickname)
+                    });
+                }
+                await db.collection("requests").doc(req.id).delete();
             };
 
-            if (loading) return <div className="h-screen flex items-center justify-center text-[#5865f2] font-black text-2xl animate-bounce">TALKHUB...</div>;
+            if (loading) return <div className="h-screen flex items-center justify-center text-[#5865f2] font-black italic">TALKHUB YÜKLENİYOR...</div>;
 
             if (!user) return (
                 <div className="h-screen flex items-center justify-center bg-[#1e1f22]">
                     <div className="bg-[#313338] p-10 rounded-2xl w-[400px] shadow-2xl border border-white/5">
-                        <h2 className="text-white text-3xl font-black mb-8 text-center uppercase tracking-tighter">TalkHub Giriş</h2>
-                        <input className="input-dark mb-4" placeholder="E-posta" onChange={e => setEmail(e.target.value)} />
-                        <input type="password" className="input-dark mb-6" placeholder="Şifre" onChange={e => setPass(e.target.value)} />
-                        <button onClick={handleLogin} className="w-full bg-[#5865f2] py-3 rounded-lg font-bold text-white hover:bg-[#4752c4] transition">Giriş Yap</button>
+                        <h2 className="text-white text-2xl font-black mb-6 text-center">{isLogin ? "TEKRAR HOŞ GELDİN!" : "HESAP OLUŞTUR"}</h2>
+                        {!isLogin && <input className="input-field" placeholder="Kullanıcı Adı" onChange={e => setAuthForm({...authForm, nick: e.target.value})} />}
+                        <input className="input-field" placeholder="E-posta" onChange={e => setAuthForm({...authForm, email: e.target.value})} />
+                        <input type="password" className="input-field" placeholder="Şifre" onChange={e => setAuthForm({...authForm, pass: e.target.value})} />
+                        <button onClick={handleAuth} className="w-full bg-[#5865f2] py-3 rounded-lg font-bold text-white hover:bg-[#4752c4] mb-4">{isLogin ? "Giriş Yap" : "Kayıt Ol"}</button>
+                        <p className="text-xs text-gray-400 text-center cursor-pointer hover:underline" onClick={() => setIsLogin(!isLogin)}>
+                            {isLogin ? "Bir hesabın yok mu? Kayıt ol" : "Zaten bir hesabın var mı? Giriş yap"}
+                        </p>
                     </div>
                 </div>
             );
 
             return (
-                <div className="flex h-screen w-full select-none">
-                    {/* SIDEBAR */}
+                <div className="flex h-screen w-full">
                     <div className="w-[72px] bg-[#1e1f22] flex flex-col items-center py-3 shrink-0">
                         <div onClick={() => setActiveTab("friends")} className={`sidebar-icon ${activeTab === "friends" ? "active" : ""}`}>👥</div>
                         <div className="w-8 h-[2px] bg-[#35363c] my-2"></div>
-                        {servers.map(s => (
-                            <div key={s.id} onClick={() => setActiveTab(s.id)} 
-                                 className={`sidebar-icon ${activeTab === s.id ? "active" : ""}`}
-                                 style={{ backgroundImage: `url(${s.icon})`, backgroundSize: 'cover' }}>
-                                {!s.icon && s.name[0]}
-                            </div>
-                        ))}
+                        {servers.map(s => <div key={s.id} onClick={() => setActiveTab(s.id)} className={`sidebar-icon ${activeTab === s.id ? "active" : ""}`}>{s.name[0]}</div>)}
                         <div onClick={() => setModal("addServer")} className="sidebar-icon">+</div>
                     </div>
 
-                    {/* KANAL / ARKADAŞ LİSTESİ */}
                     <div className="w-60 bg-[#2b2d31] flex flex-col shrink-0">
-                        <div className="h-12 border-b border-black/20 flex items-center px-4 font-bold text-white">
-                            {activeTab === "friends" ? "TalkHub" : servers.find(s => s.id === activeTab)?.name}
-                        </div>
-                        <div className="flex-1 p-3 overflow-y-auto">
-                            {activeTab === "friends" ? (
-                                <div className="space-y-4">
-                                    <button onClick={() => setModal("addFriend")} className="w-full bg-[#248046] text-white text-xs font-bold py-2 rounded">Arkadaş Ekle</button>
-                                    <div className="text-xs font-bold text-gray-400 uppercase">Arkadaşların</div>
-                                    {userData?.friends?.map(f => (
-                                        <div key={f} className="flex items-center space-x-2 p-2 hover:bg-[#35373c] rounded-lg cursor-pointer">
-                                            <div className="w-8 h-8 rounded-full bg-[#5865f2]"></div>
-                                            <span className="text-sm text-gray-300 font-medium">{f}</span>
+                        <div className="h-12 border-b border-black/20 flex items-center px-4 font-bold text-white">TalkHub</div>
+                        <div className="flex-1 p-3 space-y-4">
+                            <div className="text-xs font-bold text-gray-400 uppercase tracking-widest">Arkadaşlık</div>
+                            <button onClick={() => setModal("addFriend")} className="w-full bg-[#248046] text-white text-[11px] font-bold py-2 rounded uppercase">Arkadaş Ekle</button>
+                            
+                            {friendRequests.length > 0 && (
+                                <div className="space-y-2">
+                                    <div className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Bekleyen İstekler</div>
+                                    {friendRequests.map(r => (
+                                        <div key={r.id} className="bg-[#1e1f22] p-2 rounded-lg text-xs">
+                                            <div className="text-white font-bold mb-2">{r.fromNick}</div>
+                                            <div className="flex space-x-2">
+                                                <button onClick={() => respondRequest(r, "accepted")} className="flex-1 bg-green-600 rounded py-1">✅</button>
+                                                <button onClick={() => respondRequest(r, "rejected")} className="flex-1 bg-red-600 rounded py-1">❌</button>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
-                            ) : (
-                                <div className="space-y-4">
-                                    <div className="text-xs font-bold text-gray-400 uppercase">Ses Kanalları</div>
-                                    <div onClick={() => setInVoice(!inVoice)} className="p-2 hover:bg-[#35373c] rounded text-gray-300 flex items-center justify-between cursor-pointer">
-                                        <span>🔊 Genel Sesli</span>
-                                    </div>
-                                    {inVoice && (
-                                        <div className="pl-4 flex items-center space-x-2">
-                                            <div className={`w-6 h-6 rounded-full bg-orange-500 ${inVoice ? 'voice-active' : ''}`}></div>
-                                            <span className="text-xs text-white">{userData?.nickname}</span>
-                                        </div>
-                                    )}
-                                </div>
                             )}
+
+                            <div className="text-xs font-bold text-gray-400 uppercase tracking-widest pt-4">Arkadaşlar</div>
+                            {userData?.friends?.map(f => (
+                                <div key={f} className="flex items-center space-x-2 p-2 hover:bg-[#35373c] rounded-lg text-sm text-gray-300">
+                                    <div className="w-6 h-6 rounded-full bg-[#5865f2]"></div>
+                                    <span>{f}</span>
+                                </div>
+                            ))}
                         </div>
-                        {/* KULLANICI ALTI */}
                         <div className="bg-[#232428] p-2 flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                                <div className="w-8 h-8 rounded-full bg-cover bg-center" style={{backgroundImage: `url(${userData?.photo || 'https://via.placeholder.com/32'})`}}></div>
-                                <span className="text-xs font-bold text-white">{userData?.nickname}</span>
+                            <div className="flex items-center space-x-2 overflow-hidden">
+                                <div className="w-8 h-8 rounded-full bg-[#5865f2] flex items-center justify-center text-[10px] text-white font-bold">TH</div>
+                                <span className="text-xs font-bold text-white truncate">{userData?.nickname}</span>
                             </div>
-                            <div className="flex space-x-2 text-gray-400">
-                                <span className="cursor-pointer hover:text-white" onClick={() => setModal("settings")}>⚙️</span>
-                            </div>
+                            <span className="text-gray-400 cursor-pointer" onClick={() => auth.signOut()}>🚪</span>
                         </div>
                     </div>
 
-                    {/* ANA MESAJLAŞMA / SESLİ PANEL */}
-                    <div className="flex-1 bg-[#313338] flex flex-col">
-                        <div className="h-12 border-b border-black/20 flex items-center px-6 font-bold text-white shadow-md">
-                            {activeTab === "friends" ? "🤝 Arkadaşlık Merkezi" : "# genel-sohbet"}
-                        </div>
-                        <div className="flex-1 flex flex-col items-center justify-center">
-                            {inVoice ? (
-                                <div className="text-center">
-                                    <div className="w-32 h-32 rounded-full border-4 border-green-500 animate-pulse mx-auto mb-4 flex items-center justify-center overflow-hidden bg-black">
-                                        <img src={userData?.photo || 'https://via.placeholder.com/128'} />
-                                    </div>
-                                    <h2 className="text-white text-xl font-bold">Sesli Görüşmedesin</h2>
-                                    <button onClick={() => setInVoice(false)} className="mt-6 bg-red-600 text-white px-8 py-2 rounded-full font-bold hover:bg-red-700 transition">Bağlantıyı Kes</button>
-                                </div>
-                            ) : (
-                                <div className="text-center opacity-50">
-                                    <h2 className="text-gray-400 text-2xl font-black">TalkHub'a Hoş Geldin</h2>
-                                    <p>Sohbete başlamak için bir arkadaşını seç veya bir sunucuya dal.</p>
-                                </div>
-                            )}
-                        </div>
+                    <div className="flex-1 bg-[#313338] flex flex-col items-center justify-center text-center">
+                        <h2 className="text-gray-500 text-3xl font-black opacity-20 uppercase italic">TalkHub Network</h2>
+                        <p className="text-gray-600 text-sm mt-2">Sohbet etmek için bir sunucu veya arkadaş seç.</p>
                     </div>
-
-                    {/* MODALLAR */}
-                    {modal === "addServer" && (
-                        <div className="modal-overlay" onClick={() => setModal(null)}>
-                            <div className="bg-[#313338] p-8 rounded-xl w-96" onClick={e => e.stopPropagation()}>
-                                <h3 className="text-white text-xl font-bold mb-6">Sunucu Kur</h3>
-                                <input className="input-dark mb-4" placeholder="Sunucu Adı" onChange={e => setServerInput({...serverInput, name: e.target.value})} />
-                                <input className="input-dark mb-6" placeholder="İkon URL" onChange={e => setServerInput({...serverInput, icon: e.target.value})} />
-                                <button onClick={createServer} className="w-full bg-[#23a559] py-3 rounded-lg font-bold text-white hover:bg-[#1a7a42]">Oluştur</button>
-                            </div>
-                        </div>
-                    )}
 
                     {modal === "addFriend" && (
                         <div className="modal-overlay" onClick={() => setModal(null)}>
-                            <div className="bg-[#313338] p-8 rounded-xl w-96" onClick={e => e.stopPropagation()}>
-                                <h3 className="text-white text-xl font-bold mb-6">Arkadaş Ekle</h3>
-                                <input className="input-dark mb-6" placeholder="Arkadaşının Kullanıcı Adı" onChange={e => setFriendName(e.target.value)} />
-                                <button onClick={addFriend} className="w-full bg-[#5865f2] py-3 rounded-lg font-bold text-white">İstek Gönder</button>
+                            <div className="bg-[#313338] p-8 rounded-xl w-96 shadow-2xl" onClick={e => e.stopPropagation()}>
+                                <h3 className="text-white font-bold mb-4">Arkadaşlık İsteği Gönder</h3>
+                                <input className="input-field" placeholder="Kullanıcı Adı" onChange={e => setTargetNick(e.target.value)} />
+                                <button onClick={sendFriendRequest} className="w-full bg-[#5865f2] py-2 rounded font-bold text-white">İstek Gönder</button>
                             </div>
                         </div>
                     )}
