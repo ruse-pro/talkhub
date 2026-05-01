@@ -2,34 +2,24 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TalkHub | Kasrga Edition</title>
+    <title>TalkHub | Kasrga</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Firebase & EmailJS -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
-    <!-- React & UI Libraries -->
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <style>
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: #2f3136; }
-        ::-webkit-scrollbar-thumb { background: #202225; border-radius: 10px; }
-        .server-btn { transition: all 0.2s ease-in-out; }
-        .server-btn:hover { border-radius: 12px; background-color: #5865f2; color: white; }
-    </style>
 </head>
-<body class="bg-[#36393f] text-gray-100 select-none font-sans overflow-hidden">
+<body class="bg-[#36393f] text-white">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState } = React;
 
-        // DİKKAT: Public Key'ini buraya yapıştır kanka!
-        emailjs.init("FdTOZL7AMRiGdirp-"); 
+        // EmailJS Public Key'ini buraya yapıştır kanka!
+        emailjs.init("BURAYA_PUBLIC_KEY_GELECEK"); 
 
         const firebaseConfig = {
             apiKey: "AIzaSyAI8lNtiULLzVrI7Z42k0YhuHbXAsMKRy8",
@@ -40,170 +30,71 @@
             appId: "1:82126174871:web:b6a08ea6903eb13b1d47d2"
         };
         firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
-        const db = firebase.firestore();
 
         const TalkHub = () => {
-            const [user, setUser] = useState(null);
-            const [view, setView] = useState("loading"); // login, register, otp, main
-            const [formData, setFormData] = useState({ email: "", password: "", nickname: "", username: "" });
-            const [otp, setOtp] = useState({ sent: "", user: "" });
-            const [servers, setServers] = useState([]);
-            const [activeView, setActiveView] = useState("dm");
-            const [messages, setMessages] = useState([]);
-            const [inputText, setInputText] = useState("");
+            const [step, setStep] = useState("kayit"); // kayit, otp, giris
+            const [form, setForm] = useState({ email: "", pass: "", nick: "", user: "" });
+            const [onayKodu, setOnayKodu] = useState("");
+            const [girilenKod, setGirilenKod] = useState("");
 
-            useEffect(() => {
-                auth.onAuthStateChanged(u => {
-                    if(u) { setUser(u); setView("main"); }
-                    else setView("login");
-                });
-            }, []);
-
-            // E-posta ile Kayıt Başlatma
-            const handleStartRegister = (e) => {
+            // KOD GÖNDERME
+            const kodGonder = (e) => {
                 e.preventDefault();
-                if(!formData.email) return alert("Email gir kanka!");
-                
-                const code = Math.floor(100000 + Math.random() * 900000).toString();
-                setOtp({...otp, sent: code});
-                
+                const yeniKod = Math.floor(100000 + Math.random() * 900000).toString();
+                setOnayKodu(yeniKod);
+
+                // EmailJS'ye gönderilen veriler
                 emailjs.send("service_lz0s5ir", "template_h4u1jp8", {
-                    to_email: formData.email,
-                    code: code
+                    to_email: form.email,
+                    code: yeniKod // Paneldeki {{code}} ile aynı olmalı
                 }).then(() => {
-                    setView("otp");
-                }).catch(err => alert("Email hatası: " + err.text));
+                    setStep("otp");
+                }).catch(err => alert("Hata: " + err.text));
             };
 
-            // Kaydı Tamamlama ve Firestore'a Yazma
-            const handleFinalRegister = async () => {
-                if(otp.user === otp.sent) {
+            // KAYDI TAMAMLA
+            const kaydiBitir = async () => {
+                if (girilenKod === onayKodu) {
                     try {
-                        const res = await auth.createUserWithEmailAndPassword(formData.email, formData.password);
-                        await res.user.updateProfile({ displayName: formData.nickname });
-                        await db.collection("users").doc(res.user.uid).set({
-                            username: formData.username.toLowerCase(),
-                            displayName: formData.nickname,
-                            email: formData.email
+                        const res = await firebase.auth().createUserWithEmailAndPassword(form.email, form.pass);
+                        await res.user.updateProfile({ displayName: form.nick });
+                        await firebase.firestore().collection("users").doc(res.user.uid).set({
+                            kullaniciAdi: form.user.toLowerCase(),
+                            gorunenAd: form.nick,
+                            email: form.email
                         });
-                        alert("Hoş geldin kanka!");
-                    } catch (err) { alert(err.message); }
-                } else alert("Kod hatalı!");
-            };
-
-            // Mesajlaşma Sistemi
-            useEffect(() => {
-                if (activeView !== "dm") {
-                    const unsub = db.collection("chat")
-                        .where("sid", "==", activeView)
-                        .orderBy("ts", "asc")
-                        .onSnapshot(s => setMessages(s.docs.map(d => ({id: d.id, ...d.data()}))));
-                    return () => unsub();
-                }
-            }, [activeView]);
-
-            const sendMessage = (e) => {
-                if(e.key === 'Enter' && inputText.trim()) {
-                    db.collection("chat").add({
-                        sid: activeView,
-                        text: inputText,
-                        uName: user.displayName || user.email.split('@')[0],
-                        ts: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    setInputText("");
+                        alert("Hesabın başarıyla oluşturuldu kanka!");
+                        location.reload(); 
+                    } catch (err) { alert("Firebase Hatası: " + err.message); }
+                } else {
+                    alert("Girdiğin kod yanlış!");
                 }
             };
 
-            // --- ARAYÜZ ---
-            if (view === "login" || view === "register") return (
-                <div className="h-screen flex items-center justify-center bg-[#2f3136]">
-                    <div className="bg-[#36393f] p-10 rounded-lg shadow-2xl w-full max-w-md border border-[#202225]">
-                        <h2 className="text-3xl font-bold text-center mb-6">TalkHub</h2>
-                        <form onSubmit={view === "register" ? handleStartRegister : (e) => { e.preventDefault(); auth.signInWithEmailAndPassword(formData.email, formData.password); }}>
-                            <div className="space-y-4">
-                                {view === "register" && (
-                                    <>
-                                        <input type="text" placeholder="Görünen Ad" className="w-full bg-[#202225] p-3 rounded outline-none focus:ring-1 ring-[#5865f2]" onChange={e => setFormData({...formData, nickname: e.target.value})} />
-                                        <input type="text" placeholder="Kullanıcı Adı" className="w-full bg-[#202225] p-3 rounded outline-none focus:ring-1 ring-[#5865f2]" onChange={e => setFormData({...formData, username: e.target.value})} />
-                                    </>
-                                )}
-                                <input type="email" placeholder="E-posta" className="w-full bg-[#202225] p-3 rounded outline-none focus:ring-1 ring-[#5865f2]" onChange={e => setFormData({...formData, email: e.target.value})} />
-                                <input type="password" placeholder="Şifre" className="w-full bg-[#202225] p-3 rounded outline-none focus:ring-1 ring-[#5865f2]" onChange={e => setFormData({...formData, password: e.target.value})} />
-                                <button type="submit" className="w-full bg-[#5865f2] py-3 rounded font-bold hover:bg-[#4752c4] transition">
-                                    {view === "login" ? "Giriş Yap" : "Kod Gönder"}
-                                </button>
-                            </div>
-                        </form>
-                        <p className="mt-4 text-sm text-center text-gray-400">
-                            {view === "login" ? "Hesabın yok mu?" : "Zaten üye misin?"} 
-                            <span className="text-[#00aff4] cursor-pointer ml-1" onClick={() => setView(view === "login" ? "register" : "login")}>Tıkla</span>
-                        </p>
+            if (step === "kayit") return (
+                <div className="h-screen flex items-center justify-center">
+                    <form onSubmit={kodGonder} className="bg-[#2f3136] p-8 rounded-lg w-96 shadow-xl">
+                        <h2 className="text-2xl font-bold text-center mb-6">TalkHub Kayıt</h2>
+                        <input type="text" placeholder="Görünen Ad" className="w-full bg-[#202225] p-3 rounded mb-4 outline-none" onChange={e => setForm({...form, nick: e.target.value})} required />
+                        <input type="text" placeholder="Kullanıcı Adı" className="w-full bg-[#202225] p-3 rounded mb-4 outline-none" onChange={e => setForm({...form, user: e.target.value})} required />
+                        <input type="email" placeholder="E-posta" className="w-full bg-[#202225] p-3 rounded mb-4 outline-none" onChange={e => setForm({...form, email: e.target.value})} required />
+                        <input type="password" placeholder="Şifre" className="w-full bg-[#202225] p-3 rounded mb-6 outline-none" onChange={e => setForm({...form, pass: e.target.value})} required />
+                        <button type="submit" className="w-full bg-[#3ec44f] py-3 rounded font-bold">Kod Gönder</button>
+                    </form>
+                </div>
+            );
+
+            if (step === "otp") return (
+                <div className="h-screen flex items-center justify-center">
+                    <div className="bg-[#2f3136] p-8 rounded-lg text-center w-80">
+                        <h2 className="text-xl font-bold mb-4">Kodu Onayla</h2>
+                        <input type="text" maxLength="6" className="w-full bg-[#202225] p-3 text-center text-2xl tracking-widest rounded mb-6 outline-none border-2 border-[#5865f2]" onChange={e => setGirilenKod(e.target.value)} />
+                        <button onClick={kaydiBitir} className="w-full bg-[#5865f2] py-3 rounded font-bold">Kaydı Tamamla</button>
                     </div>
                 </div>
             );
 
-            if (view === "otp") return (
-                <div className="h-screen flex items-center justify-center bg-[#2f3136]">
-                    <div className="bg-[#36393f] p-10 rounded text-center w-full max-w-sm border border-gray-800">
-                        <h2 className="text-2xl font-bold mb-4 text-white">Doğrulama</h2>
-                        <p className="text-sm text-gray-400 mb-6">Emailine gelen 6 haneli kodu gir kanka.</p>
-                        <input type="text" maxLength="6" className="w-full bg-[#202225] p-4 text-center text-3xl tracking-widest font-bold rounded mb-6 outline-none border-2 border-[#5865f2]" onChange={e => setOtp({...otp, user: e.target.value})} />
-                        <button onClick={handleFinalRegister} className="w-full bg-[#3ec44f] py-3 rounded font-bold hover:bg-[#34a843]">Doğrula ve Bitir</button>
-                    </div>
-                </div>
-            );
-
-            if (view === "main") return (
-                <div className="flex h-screen w-full">
-                    {/* SOL PANEL (SUNUCULAR) */}
-                    <div className="w-[72px] bg-[#202225] flex flex-col items-center py-3 space-y-2">
-                        <div onClick={() => setActiveView("dm")} className={`w-12 h-12 flex items-center justify-center cursor-pointer server-btn rounded-3xl ${activeView === "dm" ? "bg-[#5865f2] rounded-xl" : "bg-[#36393f]"}`}>💬</div>
-                        <div className="w-8 h-[2px] bg-[#2f3136] rounded-full my-1"></div>
-                        {servers.map(s => (
-                            <div key={s.id} onClick={() => setActiveView(s.id)} className={`w-12 h-12 flex items-center justify-center font-bold cursor-pointer server-btn rounded-3xl ${activeView === s.id ? "bg-[#5865f2] rounded-xl shadow-lg" : "bg-[#36393f]"}`}>{s.name[0]}</div>
-                        ))}
-                        <button onClick={() => {const n=prompt("Sunucu adı:"); if(n) setServers([...servers, {id:'s'+Date.now(), name:n}])}} className="w-12 h-12 bg-[#36393f] rounded-3xl text-[#3ec44f] hover:bg-[#3ec44f] hover:text-white hover:rounded-xl text-2xl">+</button>
-                    </div>
-
-                    {/* ANA ALAN */}
-                    <div className="flex-1 flex flex-col bg-[#2f3136]">
-                        <div className="h-12 border-b border-[#26272b] flex items-center px-4 font-bold shadow-sm">
-                            {activeView === "dm" ? "TalkHub | Ana Sayfa" : `# ${servers.find(x => x.id === activeView)?.name}`}
-                        </div>
-                        <div className="flex-1 flex overflow-hidden">
-                            <div className="w-60 bg-[#2f3136] flex flex-col border-r border-[#26272b]">
-                                <div className="flex-1 p-2 text-xs text-gray-500 italic">Henüz kanal yok...</div>
-                                <div className="bg-[#292b2f] p-2 flex items-center justify-between">
-                                    <span className="text-xs font-bold truncate">{user?.displayName || user?.email.split('@')[0]}</span>
-                                    <button onClick={() => auth.signOut()} className="text-[10px] text-red-400 hover:underline">Çıkış</button>
-                                </div>
-                            </div>
-                            <div className="flex-1 flex flex-col bg-[#36393f]">
-                                <div className="flex-1 p-4 overflow-y-auto space-y-4">
-                                    {activeView === "dm" ? (
-                                        <div className="h-full flex items-center justify-center text-gray-500">Bir sunucu seçerek sohbete başla kanka!</div>
-                                    ) : (
-                                        messages.map(m => (
-                                            <div key={m.id} className="flex flex-col animate-fadeIn">
-                                                <span className="text-xs font-bold text-[#5865f2]">{m.uName}</span>
-                                                <span className="text-[14px] text-gray-200">{m.text}</span>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                                {activeView !== "dm" && (
-                                    <div className="p-4">
-                                        <input value={inputText} onChange={e => setInputText(e.target.value)} onKeyDown={sendMessage} placeholder="Mesaj yaz..." className="w-full bg-[#40444b] rounded-lg p-3 outline-none" />
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            );
-
-            return <div className="h-screen flex items-center justify-center italic opacity-50">TalkHub Yükleniyor...</div>;
+            return null;
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
