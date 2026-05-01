@@ -2,9 +2,9 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <title>TalkHub | Pro Edition</title>
+    <title>TalkHub | Live</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Firebase SDK (Kütüphaneler) -->
+    <!-- Firebase SDK (Kabloları döşüyoruz) -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -18,15 +18,18 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        // --- FIREBASE AYARLARI (Burayı kendi bilgilerine göre doldur kanka) ---
+        // SENİN ANAHTARLARIN BURADA!
         const firebaseConfig = {
-            apiKey: "YOUR_API_KEY",
-            authDomain: "YOUR_PROJECT.firebaseapp.com",
-            projectId: "YOUR_PROJECT_ID",
-            storageBucket: "YOUR_PROJECT.appspot.com",
-            messagingSenderId: "YOUR_ID",
-            appId: "YOUR_APP_ID"
+            apiKey: "AIzaSyAI8lNtiULLzVrI7Z42k0YhuHbXAsMKRy8",
+            authDomain: "talkhub-52bcc.firebaseapp.com",
+            projectId: "talkhub-52bcc",
+            storageBucket: "talkhub-52bcc.firebasestorage.app",
+            messagingSenderId: "82126174871",
+            appId: "1:82126174871:web:b6a08ea6903eb13b1d47d2",
+            measurementId: "G-3CSLDB0P8L"
         };
+
+        // Firebase'i başlat
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore();
@@ -36,21 +39,13 @@
             const [messages, setMessages] = React.useState([]);
             const [inputText, setInputText] = React.useState("");
 
-            // 1. Hesap Açma / Giriş Yapma Fonksiyonu
-            const login = () => {
-                const provider = new firebase.auth.GoogleAuthProvider();
-                auth.signInWithPopup(provider);
-            };
-
-            // 2. Kullanıcı Durumunu İzle
             React.useEffect(() => {
                 auth.onAuthStateChanged(u => setUser(u));
-            }, []);
-
-            // 3. Mesajları Gerçek Zamanlı Çek (Firestore)
-            React.useEffect(() => {
+                
+                // Mesajları canlı dinle
                 const unsubscribe = db.collection("messages")
                     .orderBy("time", "asc")
+                    .limitToLast(50)
                     .onSnapshot(snapshot => {
                         const msgData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                         setMessages(msgData);
@@ -58,7 +53,11 @@
                 return () => unsubscribe();
             }, []);
 
-            // 4. Mesaj Gönder
+            const login = () => {
+                const provider = new firebase.auth.GoogleAuthProvider();
+                auth.signInWithPopup(provider).catch(err => alert("Hata: " + err.message));
+            };
+
             const sendMessage = (e) => {
                 if (e.key === 'Enter' && inputText.trim() !== "" && user) {
                     db.collection("messages").add({
@@ -74,64 +73,54 @@
             if (!user) {
                 return (
                     <div className="h-screen bg-[#36393f] flex items-center justify-center">
-                        <div className="bg-[#2f3136] p-10 rounded-lg shadow-2xl text-center">
-                            <h1 className="text-white text-3xl font-bold mb-6">TalkHub'a Hoş Geldin</h1>
-                            <button onClick={login} className="bg-[#5865f2] text-white px-8 py-3 rounded font-bold hover:bg-[#4752c4] transition">
-                                Google ile Giriş Yap ve Başla
-                            </button>
-                        </div>
+                        <button onClick={login} className="bg-[#5865f2] text-white px-8 py-3 rounded font-bold hover:bg-[#4752c4] transition shadow-xl">
+                            Google ile TalkHub'a Gir
+                        </button>
                     </div>
                 );
             }
 
             return (
-                <div className="flex h-screen w-full bg-[#36393f] text-gray-100 overflow-hidden">
-                    {/* Sunucu Listesi */}
-                    <div className="w-[72px] bg-[#202225] flex flex-col items-center py-3 space-y-2">
-                        <div className="w-12 h-12 bg-[#5865f2] rounded-xl flex items-center justify-center font-bold">TH</div>
-                    </div>
-
-                    {/* Kanal Listesi */}
-                    <div className="w-60 bg-[#2f3136] flex flex-col">
-                        <div className="h-12 border-b border-[#26272b] flex items-center px-4 font-bold">TalkHub Sunucusu</div>
+                <div className="flex h-screen w-full bg-[#36393f] text-gray-100 font-sans">
+                    {/* Yan Panel */}
+                    <div className="w-60 bg-[#2f3136] flex flex-col border-r border-[#26272b]">
+                        <div className="h-12 flex items-center px-4 font-bold shadow-sm">TalkHub Sunucusu</div>
                         <div className="flex-1 p-3">
-                            <div className="bg-[#393c43] px-2 py-1.5 rounded text-white flex items-center"># genel</div>
+                            <div className="bg-[#393c43] px-2 py-1.5 rounded text-white cursor-pointer"># genel-sohbet</div>
                         </div>
-                        {/* Profil Paneli */}
-                        <div className="bg-[#292b2f] p-2 flex items-center space-x-2">
-                            <img src={user.photoURL} className="w-8 h-8 rounded-full" />
-                            <div className="flex-1 overflow-hidden">
-                                <p className="text-xs font-bold truncate">{user.displayName}</p>
-                                <p className="text-[10px] text-gray-400 font-mono">#{user.uid.slice(0,4)}</p>
+                        {/* Profil */}
+                        <div className="bg-[#292b2f] p-2 flex items-center justify-between">
+                            <div className="flex items-center space-x-2 overflow-hidden">
+                                <img src={user.photoURL} className="w-8 h-8 rounded-full border border-gray-600" />
+                                <span className="text-xs font-bold truncate">{user.displayName}</span>
                             </div>
-                            <button onClick={() => auth.signOut()} className="text-xs text-red-400 hover:underline">Çıkış</button>
+                            <button onClick={() => auth.signOut()} className="text-[10px] text-red-400">Çıkış</button>
                         </div>
                     </div>
 
-                    {/* Chat Paneli */}
+                    {/* Chat */}
                     <div className="flex-1 flex flex-col">
-                        <div className="h-12 border-b border-[#26272b] flex items-center px-4 font-semibold shadow-sm"># genel</div>
                         <div className="flex-1 overflow-y-auto p-4 space-y-4">
                             {messages.map(m => (
-                                <div key={m.id} className="flex space-x-3 group">
+                                <div key={m.id} className="flex space-x-3">
                                     <img src={m.photo} className="w-10 h-10 rounded-full" />
                                     <div>
-                                        <span className="font-bold text-white mr-2 hover:underline cursor-pointer">{m.user}</span>
-                                        <p className="text-gray-300">{m.text}</p>
+                                        <div className="flex items-center space-x-2">
+                                            <span className="font-bold text-white text-sm">{m.user}</span>
+                                        </div>
+                                        <p className="text-gray-300 text-sm">{m.text}</p>
                                     </div>
                                 </div>
                             ))}
                         </div>
                         <div className="p-4">
-                            <div className="bg-[#40444b] rounded-lg px-4 py-3 text-sm">
-                                <input 
-                                    value={inputText}
-                                    onChange={(e) => setInputText(e.target.value)}
-                                    onKeyDown={sendMessage}
-                                    placeholder={`${user.displayName} olarak mesaj gönder...`} 
-                                    className="bg-transparent w-full focus:outline-none"
-                                />
-                            </div>
+                            <input 
+                                value={inputText}
+                                onChange={(e) => setInputText(e.target.value)}
+                                onKeyDown={sendMessage}
+                                placeholder="Mesaj gönder..." 
+                                className="w-full bg-[#40444b] rounded-lg px-4 py-3 focus:outline-none text-sm"
+                            />
                         </div>
                     </div>
                 </div>
