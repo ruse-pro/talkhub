@@ -28,6 +28,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
+        // EmailJS başlatma
         emailjs.init("FdTOZL7AMRiGdirp-"); 
 
         const firebaseConfig = {
@@ -65,26 +66,30 @@
                 });
             }, []);
 
-            // Arkadaş Arama Mantığı
+            // Arkadaş Arama Mantığı (Kibar Versiyon)
             const findAndAddFriend = async () => {
+                if(!searchName) return;
                 const snapshot = await db.collection("users").where("username", "==", searchName).get();
                 if (snapshot.empty) {
-                    alert("Kanka böyle bir kullanıcı yok amk!");
+                    alert("Aradığınız kullanıcı bulunamadı. Lütfen kullanıcı adını kontrol edin.");
                 } else {
-                    alert(`${searchName} kullanıcısına istek gönderildi (veya eklendi)!`);
+                    alert(`${searchName} kullanıcısına arkadaşlık isteği gönderildi!`);
                     setSearchName("");
                 }
             };
 
-            // İsim Değiştirme
+            // İsim Değiştirme (Ayarlar)
             const updateNickname = async () => {
-                await db.collection("users").doc(user.uid).update({ nickname: newName });
-                setUserData({...userData, nickname: newName});
-                alert("İsim güncellendi kanka!");
-                setModal(null);
+                if(!newName) return;
+                try {
+                    await db.collection("users").doc(user.uid).update({ nickname: newName });
+                    setUserData({...userData, nickname: newName});
+                    alert("Kullanıcı adınız başarıyla güncellendi.");
+                    setModal(null);
+                } catch(e) { alert("Güncelleme sırasında bir hata oluştu."); }
             };
 
-            if (!user) return <div className="h-screen flex items-center justify-center bg-[#1e1f22] text-white">Giriş Yap kanka...</div>;
+            if (!user) return <div className="h-screen flex items-center justify-center bg-[#1e1f22] text-white font-bold italic text-2xl tracking-widest">TalkHub</div>;
 
             return (
                 <div className="flex h-screen w-full relative">
@@ -100,39 +105,42 @@
                             </div>
                         ))}
                         <div onClick={() => setModal("create")} className="sidebar-btn text-[#23a559] text-2xl font-bold">+</div>
-                        {user.email === ADMIN_EMAIL && <div className="sidebar-btn text-xl text-yellow-500">👑</div>}
+                        {user.email === ADMIN_EMAIL && <div className="sidebar-btn text-xl text-yellow-500" title="Admin">👑</div>}
                     </div>
 
                     {/* SOL PANEL */}
                     <div className="w-60 bg-[#2b2d31] flex flex-col shrink-0">
-                        <div className="h-12 flex items-center px-4 font-bold border-b border-black/20">
-                            {activeTab === "dm" ? "TalkHub" : servers.find(x => x.id === activeTab)?.name}
+                        <div className="h-12 flex items-center px-4 font-bold border-b border-black/20 text-gray-200">
+                            {activeTab === "dm" ? "TalkHub Ana Sayfa" : servers.find(x => x.id === activeTab)?.name}
                         </div>
-                        <div className="flex-1 p-2 space-y-4">
+                        <div className="flex-1 p-2 space-y-1">
                             {activeTab === "dm" ? (
-                                <div className="space-y-1">
-                                    <div className="flex items-center p-2 rounded bg-[#3f4147] text-white cursor-pointer">👥 Arkadaşlar</div>
-                                    <div className="text-xs font-bold text-gray-400 px-2 py-3 uppercase">Direkt Mesajlar</div>
-                                </div>
+                                <>
+                                    <div className="flex items-center p-2 rounded bg-[#3f4147] text-white cursor-pointer font-medium">👥 Arkadaşlar</div>
+                                    <div className="text-xs font-bold text-gray-500 px-2 py-3 uppercase tracking-wider">Direkt Mesajlar</div>
+                                </>
                             ) : (
                                 <div>
                                     <div onClick={() => setModal("serverSettings")} className="p-2 rounded hover:bg-[#35373c] text-gray-400 cursor-pointer text-sm">⚙️ Sunucu Ayarları</div>
-                                    <div className="text-xs font-bold text-gray-400 px-2 mt-4 uppercase">Ses Kanalları</div>
-                                    <div className="p-2 text-green-500 flex items-center text-sm">🔊 Genel Sesli (Aktif)</div>
+                                    <div className="text-xs font-bold text-gray-500 px-2 mt-4 uppercase tracking-wider">Ses Kanalları</div>
+                                    <div className="p-2 text-green-500 flex items-center text-sm font-medium">🔊 Genel Sesli</div>
                                 </div>
                             )}
                         </div>
 
-                        {/* KULLANICI BARI */}
+                        {/* KULLANICI ALANI */}
                         <div className="bg-[#232428] p-2 flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                                <div className="w-8 h-8 rounded-full bg-[#5865f2] relative flex items-center justify-center font-bold text-[10px]">TH</div>
-                                <div className="flex flex-col">
-                                    <span className="text-xs font-bold text-white">{userData?.nickname || user.email.split('@')[0]}</span>
-                                    {user.email === ADMIN_EMAIL && <span className="th-badge">TH</span>}
+                            <div className="flex items-center space-x-2 overflow-hidden">
+                                <div className="w-8 h-8 rounded-full bg-[#5865f2] shrink-0 flex items-center justify-center font-bold text-[10px] text-white">TH</div>
+                                <div className="flex flex-col truncate">
+                                    <div className="flex items-center">
+                                        <span className="text-xs font-bold text-white truncate">{userData?.nickname || user.email.split('@')[0]}</span>
+                                        {user.email === ADMIN_EMAIL && <span className="th-badge">TH</span>}
+                                    </div>
+                                    <span className="text-[10px] text-gray-400 font-bold">Çevrimiçi</span>
                                 </div>
                             </div>
-                            <div className="flex space-x-2 text-gray-400 cursor-pointer">
+                            <div className="flex space-x-2 text-gray-400 cursor-pointer hover:text-white transition">
                                 <span onClick={() => setModal("userSettings")}>⚙️</span>
                             </div>
                         </div>
@@ -140,12 +148,15 @@
 
                     {/* ANA ALAN */}
                     <div className="flex-1 bg-[#313338] flex flex-col">
+                        <div className="h-12 border-b border-black/20 flex items-center px-4">
+                            <span className="text-gray-200 font-bold">TalkHub</span>
+                        </div>
                         <div className="p-10 flex flex-col items-center">
                             <h2 className="text-white text-xl font-bold mb-4">Arkadaş Ekle</h2>
-                            <div className="flex bg-[#1e1f22] p-2 rounded w-full max-w-md border border-black/30">
-                                <input className="bg-transparent flex-1 outline-none text-white text-sm" placeholder="Kullanıcı adı (ör: a)" 
+                            <div className="flex bg-[#1e1f22] p-2 rounded w-full max-w-md border border-black/30 focus-within:border-[#5865f2] transition">
+                                <input className="bg-transparent flex-1 outline-none text-white text-sm px-2" placeholder="Arkadaşının kullanıcı adını yaz..." 
                                        value={searchName} onChange={e => setSearchName(e.target.value)} />
-                                <button onClick={findAndAddFriend} className="bg-[#5865f2] px-4 py-1 rounded text-xs font-bold">Ekle</button>
+                                <button onClick={findAndAddFriend} className="bg-[#5865f2] px-6 py-1.5 rounded text-xs font-bold text-white hover:bg-[#4752c4] transition">İstek Gönder</button>
                             </div>
                         </div>
                     </div>
@@ -153,13 +164,13 @@
                     {/* MODAL - KULLANICI AYARLARI */}
                     {modal === "userSettings" && (
                         <div className="modal-overlay">
-                            <div className="bg-[#313338] p-8 rounded-xl w-96">
-                                <h2 className="text-xl font-bold mb-6 text-white text-center">Hesap Ayarları</h2>
-                                <label className="text-xs font-bold text-gray-400 uppercase">Görünen Adı Değiştir</label>
-                                <input className="w-full bg-[#1e1f22] p-2 rounded mt-1 mb-6 outline-none text-white" 
-                                       placeholder="Yeni İsim" value={newName} onChange={e => setNewName(e.target.value)} />
-                                <button onClick={updateNickname} className="w-full bg-[#5865f2] py-2 rounded font-bold mb-2">Kaydet</button>
-                                <button onClick={() => setModal(null)} className="w-full text-gray-400 text-sm">Vazgeç</button>
+                            <div className="bg-[#313338] p-8 rounded-xl w-[400px] shadow-2xl border border-white/5">
+                                <h2 className="text-xl font-bold mb-6 text-white text-center">Profil Ayarları</h2>
+                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">Kullanıcı Adını Güncelle</label>
+                                <input className="w-full bg-[#1e1f22] p-3 rounded-lg mt-2 mb-6 outline-none text-white border border-transparent focus:border-[#5865f2] transition" 
+                                       placeholder="Yeni kullanıcı adınızı girin" value={newName} onChange={e => setNewName(e.target.value)} />
+                                <button onClick={updateNickname} className="w-full bg-[#5865f2] py-2.5 rounded-lg font-bold text-white hover:bg-[#4752c4] transition shadow-lg">Değişiklikleri Kaydet</button>
+                                <button onClick={() => setModal(null)} className="w-full mt-4 text-gray-400 hover:text-white text-sm transition">Vazgeç</button>
                             </div>
                         </div>
                     )}
