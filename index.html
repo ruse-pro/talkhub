@@ -2,64 +2,58 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <title>TalkHub | Live</title>
+    <title>TalkHub | Official</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Firebase SDK (Kabloları döşüyoruz) -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-    
-    <!-- React & Babel -->
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
-<body>
+<body class="bg-[#36393f] select-none">
     <div id="root"></div>
 
     <script type="text/babel">
-        // SENİN ANAHTARLARIN BURADA!
         const firebaseConfig = {
             apiKey: "AIzaSyAI8lNtiULLzVrI7Z42k0YhuHbXAsMKRy8",
             authDomain: "talkhub-52bcc.firebaseapp.com",
             projectId: "talkhub-52bcc",
             storageBucket: "talkhub-52bcc.firebasestorage.app",
             messagingSenderId: "82126174871",
-            appId: "1:82126174871:web:b6a08ea6903eb13b1d47d2",
-            measurementId: "G-3CSLDB0P8L"
+            appId: "1:82126174871:web:b6a08ea6903eb13b1d47d2"
         };
 
-        // Firebase'i başlat
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore();
 
         const TalkHub = () => {
             const [user, setUser] = React.useState(null);
+            const [view, setView] = React.useState("setup"); // setup, server, dm
             const [messages, setMessages] = React.useState([]);
             const [inputText, setInputText] = React.useState("");
+            const [serverName, setServerName] = React.useState("");
 
             React.useEffect(() => {
-                auth.onAuthStateChanged(u => setUser(u));
-                
-                // Mesajları canlı dinle
-                const unsubscribe = db.collection("messages")
-                    .orderBy("time", "asc")
-                    .limitToLast(50)
-                    .onSnapshot(snapshot => {
-                        const msgData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                        setMessages(msgData);
-                    });
-                return () => unsubscribe();
+                auth.onAuthStateChanged(u => {
+                    setUser(u);
+                    if(u) setView("setup"); // İlk girişte kurulum ekranı
+                });
             }, []);
 
-            const login = () => {
-                const provider = new firebase.auth.GoogleAuthProvider();
-                auth.signInWithPopup(provider).catch(err => alert("Hata: " + err.message));
-            };
+            // Mesajları Dinle
+            React.useEffect(() => {
+                if (user && view === "server") {
+                    const unsubscribe = db.collection("messages").orderBy("time", "asc").onSnapshot(s => {
+                        setMessages(s.docs.map(d => ({id: d.id, ...d.data()})));
+                    });
+                    return () => unsubscribe();
+                }
+            }, [user, view]);
 
             const sendMessage = (e) => {
-                if (e.key === 'Enter' && inputText.trim() !== "" && user) {
+                if(e.key === 'Enter' && inputText.trim() && user) {
                     db.collection("messages").add({
                         text: inputText,
                         user: user.displayName,
@@ -70,58 +64,91 @@
                 }
             };
 
-            if (!user) {
-                return (
-                    <div className="h-screen bg-[#36393f] flex items-center justify-center">
-                        <button onClick={login} className="bg-[#5865f2] text-white px-8 py-3 rounded font-bold hover:bg-[#4752c4] transition shadow-xl">
-                            Google ile TalkHub'a Gir
-                        </button>
+            if (!user) return (
+                <div className="h-screen flex items-center justify-center">
+                    <button onClick={() => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())} className="bg-[#5865f2] text-white px-10 py-4 rounded-lg font-bold text-lg hover:scale-105 transition shadow-2xl">TalkHub'ı Başlat</button>
+                </div>
+            );
+
+            // İLK BAŞLAYINCA SUNUCU OLUŞTURMA EKRANI
+            if (view === "setup") return (
+                <div className="h-screen flex items-center justify-center bg-[#36393f]">
+                    <div className="bg-white p-8 rounded-2xl w-96 text-center shadow-2xl">
+                        <div className="w-20 h-20 bg-[#5865f2] rounded-3xl mx-auto flex items-center justify-center text-white text-3xl font-bold mb-4">TH</div>
+                        <h2 className="text-2xl font-bold text-gray-800">Sunucunu Oluştur</h2>
+                        <p className="text-gray-500 text-sm mt-2">TalkHub'a hoş geldin! İlk sunucuna bir isim vererek başla.</p>
+                        <input value={serverName} onChange={e => setServerName(e.target.value)} placeholder="Sunucu Adı" className="w-full mt-6 p-3 bg-gray-100 border rounded-lg outline-none focus:border-[#5865f2]" />
+                        <button onClick={() => serverName && setView("server")} className="w-full mt-4 bg-[#5865f2] text-white py-3 rounded-lg font-bold">Oluştur ve Katıl</button>
                     </div>
-                );
-            }
+                </div>
+            );
 
             return (
-                <div className="flex h-screen w-full bg-[#36393f] text-gray-100 font-sans">
-                    {/* Yan Panel */}
-                    <div className="w-60 bg-[#2f3136] flex flex-col border-r border-[#26272b]">
-                        <div className="h-12 flex items-center px-4 font-bold shadow-sm">TalkHub Sunucusu</div>
-                        <div className="flex-1 p-3">
-                            <div className="bg-[#393c43] px-2 py-1.5 rounded text-white cursor-pointer"># genel-sohbet</div>
+                <div className="flex h-screen w-full bg-[#36393f] text-gray-100 overflow-hidden">
+                    {/* SOL SÜTUN - NAV */}
+                    <div className="w-[72px] bg-[#202225] flex flex-col items-center py-3 space-y-3">
+                        <div onClick={() => setView("dm")} className={`w-12 h-12 rounded-3xl flex items-center justify-center cursor-pointer transition-all ${view === "dm" ? "bg-[#5865f2] rounded-xl" : "bg-[#36393f] hover:bg-[#5865f2] hover:rounded-xl"}`}>
+                            <span className="text-xl">💬</span>
                         </div>
-                        {/* Profil */}
-                        <div className="bg-[#292b2f] p-2 flex items-center justify-between">
-                            <div className="flex items-center space-x-2 overflow-hidden">
-                                <img src={user.photoURL} className="w-8 h-8 rounded-full border border-gray-600" />
-                                <span className="text-xs font-bold truncate">{user.displayName}</span>
-                            </div>
-                            <button onClick={() => auth.signOut()} className="text-[10px] text-red-400">Çıkış</button>
+                        <div className="w-8 h-[2px] bg-[#36393f] rounded-full"></div>
+                        <div onClick={() => setView("server")} className={`w-12 h-12 rounded-3xl flex items-center justify-center font-bold transition-all ${view === "server" ? "bg-[#5865f2] rounded-xl" : "bg-[#36393f] hover:bg-[#5865f2] hover:rounded-xl"}`}>
+                            {serverName.charAt(0).toUpperCase()}
                         </div>
                     </div>
 
-                    {/* Chat */}
+                    {/* ORTA SÜTUN - LİSTE */}
+                    <div className="w-60 bg-[#2f3136] flex flex-col border-r border-[#26272b]">
+                        <div className="h-12 flex items-center px-4 font-bold shadow-sm">{view === "server" ? serverName : "Direkt Mesajlar"}</div>
+                        <div className="flex-1 p-3 space-y-2">
+                            {view === "server" ? (
+                                <div className="bg-[#393c43] px-2 py-2 rounded text-white flex items-center"># genel-sohbet</div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <button className="w-full bg-[#3ec44f] py-1.5 rounded font-bold text-sm">Arkadaş Ekle</button>
+                                    <div className="text-gray-400 text-[11px] font-bold uppercase">Mesajlar</div>
+                                    <div className="flex items-center space-x-2 opacity-50 cursor-not-allowed italic text-sm"><div className="w-8 h-8 bg-gray-600 rounded-full"></div><span>Henüz arkadaş yok</span></div>
+                                </div>
+                            )}
+                        </div>
+                        <div className="bg-[#292b2f] p-2 flex items-center space-x-2">
+                            <div className="relative group">
+                                <img src={user.photoURL} className="w-8 h-8 rounded-full border border-gray-600 cursor-pointer" />
+                                <div className="absolute hidden group-hover:block bottom-10 left-0 bg-black text-[10px] p-1 rounded">Profil Değiştir (Yakında)</div>
+                            </div>
+                            <div className="flex-1 overflow-hidden">
+                                <p className="text-xs font-bold truncate text-white">{user.displayName}</p>
+                                <p className="text-[10px] text-gray-400 leading-none">Çevrimiçi</p>
+                            </div>
+                            <button onClick={() => auth.signOut()} className="text-[10px] text-red-400 hover:underline px-1">Çıkış</button>
+                        </div>
+                    </div>
+
+                    {/* SAĞ SÜTUN - CHAT */}
                     <div className="flex-1 flex flex-col">
+                        <div className="h-12 border-b border-[#26272b] flex items-center px-6 font-semibold shadow-sm italic text-gray-400">
+                            {view === "server" ? `# genel-sohbet` : `Arkadaşlarınla sohbet et`}
+                        </div>
                         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                            {messages.map(m => (
+                            {view === "server" ? messages.map(m => (
                                 <div key={m.id} className="flex space-x-3">
                                     <img src={m.photo} className="w-10 h-10 rounded-full" />
                                     <div>
-                                        <div className="flex items-center space-x-2">
-                                            <span className="font-bold text-white text-sm">{m.user}</span>
-                                        </div>
-                                        <p className="text-gray-300 text-sm">{m.text}</p>
+                                        <span className="font-bold text-white text-sm mr-2">{m.user}</span>
+                                        <p className="text-gray-300 text-sm leading-relaxed">{m.text}</p>
                                     </div>
                                 </div>
-                            ))}
+                            )) : (
+                                <div className="h-full flex flex-col items-center justify-center opacity-20">
+                                    <span className="text-6xl mb-4">🛸</span>
+                                    <p>Buralar şimdilik çok sessiz...</p>
+                                </div>
+                            )}
                         </div>
-                        <div className="p-4">
-                            <input 
-                                value={inputText}
-                                onChange={(e) => setInputText(e.target.value)}
-                                onKeyDown={sendMessage}
-                                placeholder="Mesaj gönder..." 
-                                className="w-full bg-[#40444b] rounded-lg px-4 py-3 focus:outline-none text-sm"
-                            />
-                        </div>
+                        {view === "server" && (
+                            <div className="p-4">
+                                <input value={inputText} onChange={e => setInputText(e.target.value)} onKeyDown={sendMessage} placeholder={`${serverName} sunucusuna mesaj gönder...`} className="w-full bg-[#40444b] rounded-lg px-4 py-3 focus:outline-none text-sm shadow-inner" />
+                            </div>
+                        )}
                     </div>
                 </div>
             );
