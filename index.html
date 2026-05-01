@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <title>TalkHub | Sohbet Et!</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -13,78 +16,133 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState } = React;
+        const { useState, useEffect } = React;
 
-        // EmailJS Public Key'ini BURAYA YAPIŞTIR kanka!
+        // EmailJS Public Key'ini buraya yapıştır!
         emailjs.init("FdTOZL7AMRiGdirp-"); 
 
-        const TalkHub = () => {
-            const [step, setStep] = useState("kayit"); // kayit, otp, main
-            const [form, setForm] = useState({ email: "", nick: "", user: "" });
-            const [onayKodu, setOnayKodu] = useState("");
-            const [girilenKod, setGirilenKod] = useState("");
+        const firebaseConfig = {
+            apiKey: "AIzaSyAI8lNtiULLzVrI7Z42k0YhuHbXAsMKRy8",
+            authDomain: "talkhub-52bcc.firebaseapp.com",
+            projectId: "talkhub-52bcc",
+            storageBucket: "talkhub-52bcc.firebasestorage.app",
+            messagingSenderId: "82126174871",
+            appId: "1:82126174871:web:b6a08ea6903eb13b1d47d2"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
 
-            // KOD GÖNDERME (EmailJS)
-            const kodGonder = (e) => {
+        const TalkHubApp = () => {
+            const [authState, setAuthState] = useState("loading");
+            const [form, setForm] = useState({ email: "", pass: "", nick: "", user: "" });
+            const [otp, setOtp] = useState({ sent: "", user: "" });
+
+            // OTURUM KONTROLÜ (Kalıcı giriş sağlar)
+            useEffect(() => {
+                auth.onAuthStateChanged(u => u ? setAuthState("main") : setAuthState("login"));
+            }, []);
+
+            // GİRİŞ YAP (Şifreyle direkt giriş)
+            const handleLogin = (e) => {
                 e.preventDefault();
-                const yeniKod = Math.floor(100000 + Math.random() * 900000).toString();
-                setOnayKodu(yeniKod);
+                auth.signInWithEmailAndPassword(form.email, form.pass)
+                    .catch(err => alert("Giriş başarısız: " + err.message));
+            };
+
+            // KAYIT BAŞLAT (Mail Onayı)
+            const handleStartRegister = (e) => {
+                e.preventDefault();
+                const code = Math.floor(100000 + Math.random() * 900000).toString();
+                setOtp({ ...otp, sent: code });
 
                 emailjs.send("service_lz0s5ir", "template_h4u1jp8", {
                     to_email: form.email,
-                    code: yeniKod 
-                }).then(() => {
-                    setStep("otp");
-                }).catch(err => alert("Mail hatası kanka: " + err.text));
+                    code: code
+                }).then(() => setAuthState("otp")).catch(err => alert("Hata: " + err.text));
             };
 
-            // DOĞRULAMA VE GİRİŞ
-            const dogrula = () => {
-                if (girilenKod === onayKodu) {
-                    setStep("main");
-                } else {
-                    alert("Kod yanlış, tekrar dene!");
-                }
+            // KAYDI TAMAMLA VE HESABI OLUŞTUR
+            const finalizeSignUp = async () => {
+                if (otp.user === otp.sent) {
+                    try {
+                        const res = await auth.createUserWithEmailAndPassword(form.email, form.pass);
+                        await res.user.updateProfile({ displayName: form.nick });
+                        await db.collection("users").doc(res.user.uid).set({
+                            username: form.user.toLowerCase(),
+                            nickname: form.nick,
+                            email: form.email,
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    } catch (err) { alert(err.message); }
+                } else alert("Kod yanlış!");
             };
 
-            if (step === "kayit") return (
+            if (authState === "login") return (
                 <div className="h-screen flex items-center justify-center">
-                    <form onSubmit={kodGonder} className="bg-[#2f3136] p-8 rounded-lg w-96 shadow-xl border border-gray-700">
-                        <h2 className="text-2xl font-bold text-center mb-6">TalkHub'a Giriş</h2>
-                        <input type="text" placeholder="Görünen Adın" className="w-full bg-[#202225] p-3 rounded mb-4 outline-none" onChange={e => setForm({...form, nick: e.target.value})} required />
-                        <input type="email" placeholder="E-posta Adresin" className="w-full bg-[#202225] p-3 rounded mb-6 outline-none" onChange={e => setForm({...form, email: e.target.value})} required />
-                        <button type="submit" className="w-full bg-[#5865f2] py-3 rounded font-bold hover:bg-[#4752c4] transition">Doğrulama Kodu Gönder</button>
+                    <form onSubmit={handleLogin} className="bg-[#2f3136] p-10 rounded-lg w-96 shadow-2xl border border-[#202225]">
+                        <h2 className="text-3xl font-bold text-center mb-6">Hoş Geldin!</h2>
+                        <div className="space-y-4">
+                            <input type="email" placeholder="E-posta" className="w-full bg-[#202225] p-3 rounded outline-none focus:ring-1 ring-[#5865f2]" onChange={e => setForm({...form, email: e.target.value})} required />
+                            <input type="password" placeholder="Şifre" className="w-full bg-[#202225] p-3 rounded outline-none focus:ring-1 ring-[#5865f2]" onChange={e => setForm({...form, pass: e.target.value})} required />
+                            <button type="submit" className="w-full bg-[#5865f2] py-3 rounded font-bold hover:bg-[#4752c4] transition">Giriş Yap</button>
+                            <p className="text-center text-sm text-gray-400">Hesabın yok mu? <span className="text-[#00aff4] cursor-pointer" onClick={() => setAuthState("register")}>Kaydol</span></p>
+                        </div>
                     </form>
                 </div>
             );
 
-            if (step === "otp") return (
+            if (authState === "register") return (
                 <div className="h-screen flex items-center justify-center">
-                    <div className="bg-[#2f3136] p-8 rounded-lg text-center w-80 shadow-xl">
-                        <h2 className="text-xl font-bold mb-2">Mailini Kontrol Et</h2>
-                        <p className="text-sm text-gray-400 mb-6">Gelen 6 haneli kodu aşağıya yaz.</p>
-                        <input type="text" maxLength="6" className="w-full bg-[#202225] p-3 text-center text-2xl tracking-[8px] rounded mb-6 outline-none border-2 border-[#5865f2]" onChange={e => setGirilenKod(e.target.value)} />
-                        <button onClick={dogrula} className="w-full bg-[#3ec44f] py-3 rounded font-bold hover:bg-[#34a843]">Giriş Yap</button>
+                    <form onSubmit={handleStartRegister} className="bg-[#2f3136] p-10 rounded-lg w-96 shadow-2xl">
+                        <h2 className="text-2xl font-bold text-center mb-6">Hesap Oluştur</h2>
+                        <div className="space-y-4">
+                            <input type="text" placeholder="Görünen Ad" className="w-full bg-[#202225] p-3 rounded outline-none" onChange={e => setForm({...form, nick: e.target.value})} required />
+                            <input type="text" placeholder="Kullanıcı Adı" className="w-full bg-[#202225] p-3 rounded outline-none" onChange={e => setForm({...form, user: e.target.value})} required />
+                            <input type="email" placeholder="E-posta" className="w-full bg-[#202225] p-3 rounded outline-none" onChange={e => setForm({...form, email: e.target.value})} required />
+                            <input type="password" placeholder="Şifre" className="w-full bg-[#202225] p-3 rounded outline-none" onChange={e => setForm({...form, pass: e.target.value})} required />
+                            <button type="submit" className="w-full bg-[#3ec44f] py-3 rounded font-bold hover:bg-[#34a843]">Kod Gönder ve Kaydol</button>
+                            <p className="text-center text-sm text-gray-400"><span className="text-[#00aff4] cursor-pointer" onClick={() => setAuthState("login")}>Geri Dön</span></p>
+                        </div>
+                    </form>
+                </div>
+            );
+
+            if (authState === "otp") return (
+                <div className="h-screen flex items-center justify-center">
+                    <div className="bg-[#2f3136] p-10 rounded text-center w-80">
+                        <h2 className="text-xl font-bold mb-4">Kodu Onayla</h2>
+                        <input type="text" maxLength="6" className="w-full bg-[#202225] p-4 text-center text-2xl tracking-widest rounded mb-6 outline-none border-2 border-[#5865f2]" onChange={e => setOtp({...otp, user: e.target.value})} />
+                        <button onClick={finalizeSignUp} className="w-full bg-[#5865f2] py-3 rounded font-bold">Hesabımı Oluştur</button>
                     </div>
                 </div>
             );
 
-            if (step === "main") return (
-                <div className="h-screen flex flex-col items-center justify-center">
-                    <div className="text-center">
-                        <div className="w-24 h-24 bg-[#5865f2] rounded-3xl flex items-center justify-center text-4xl mb-4 mx-auto shadow-lg">💬</div>
-                        <h1 className="text-3xl font-bold mb-2">Hoş geldin, {form.nick}!</h1>
-                        <p className="text-gray-400">TalkHub ana sayfası şu an yapım aşamasında kanka.</p>
-                        <button onClick={() => location.reload()} className="mt-8 text-sm text-red-400 hover:underline">Çıkış Yap</button>
+            if (authState === "main") return (
+                <div className="flex h-screen w-full bg-[#36393f]">
+                    {/* Basit Yan Panel */}
+                    <div className="w-[72px] bg-[#202225] flex flex-col items-center py-4 space-y-4">
+                        <div className="w-12 h-12 bg-[#5865f2] rounded-xl flex items-center justify-center font-bold text-white shadow-lg">TH</div>
+                    </div>
+                    {/* Sohbet Alanı */}
+                    <div className="flex-1 flex flex-col">
+                        <div className="h-12 border-b border-[#202225] flex items-center px-4 font-bold text-gray-200 shadow-sm">
+                            TalkHub | Sohbet Et!
+                        </div>
+                        <div className="flex-1 flex items-center justify-center flex-col space-y-4">
+                            <h1 className="text-4xl font-bold">Hoş geldin, {auth.currentUser?.displayName}!</h1>
+                            <p className="text-gray-400">Artık kalıcı bir hesabın var kanka.</p>
+                            <button onClick={() => auth.signOut()} className="bg-red-500/20 text-red-400 px-6 py-2 rounded hover:bg-red-500 hover:text-white transition">Çıkış Yap</button>
+                        </div>
                     </div>
                 </div>
             );
 
-            return null;
+            return <div className="h-screen flex items-center justify-center animate-pulse">Yükleniyor...</div>;
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<TalkHub />);
+        root.render(<TalkHubApp />);
     </script>
 </body>
 </html>
