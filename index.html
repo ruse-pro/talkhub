@@ -2,20 +2,32 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <title>TalkHub | My Identity</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TalkHub | Kasrga Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase & EmailJS -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    <!-- React -->
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #2f3136; }
+        ::-webkit-scrollbar-thumb { background: #202225; border-radius: 10px; }
+    </style>
 </head>
-<body class="bg-[#36393f] text-gray-100 select-none overflow-hidden">
+<body class="bg-[#36393f] text-gray-100 select-none font-sans overflow-hidden">
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect } = React;
+
+        // DİKKAT: Burayı kendi anahtarlarınla doldurmayı unutma kanka!
+        emailjs.init("YOUR_PUBLIC_KEY"); 
 
         const firebaseConfig = {
             apiKey: "AIzaSyAI8lNtiULLzVrI7Z42k0YhuHbXAsMKRy8",
@@ -25,170 +37,244 @@
             messagingSenderId: "82126174871",
             appId: "1:82126174871:web:b6a08ea6903eb13b1d47d2"
         };
-
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore();
 
         const TalkHub = () => {
             const [user, setUser] = useState(null);
-            const [view, setView] = useState("auth"); // auth, setup, main
-            const [customName, setCustomName] = useState("");
-            const [customPhoto, setCustomPhoto] = useState("https://via.placeholder.com/150");
+            const [view, setView] = useState("loading"); // login, register, otp, setup, main
+            const [formData, setFormData] = useState({ email: "", password: "", nickname: "", photo: "https://via.placeholder.com/150" });
+            const [otp, setOtp] = useState({ sent: "", user: "" });
             const [servers, setServers] = useState([]);
-            const [friends, setFriends] = useState([]);
-            const [activeView, setActiveView] = useState("dm"); // dm or serverId
+            const [activeView, setActiveView] = useState("dm");
             const [messages, setMessages] = useState([]);
             const [inputText, setInputText] = useState("");
+            const [showModal, setShowModal] = useState(null); // 'server', 'settings'
 
             useEffect(() => {
                 auth.onAuthStateChanged(u => {
-                    if(u) setView("setup");
-                    else setView("auth");
+                    if(u) { setUser(u); setView("main"); }
+                    else setView("login");
                 });
             }, []);
 
-            // Mesajları Dinle
+            // OTP GÖNDERME
+            const handleSendOTP = (e) => {
+                e.preventDefault();
+                const code = Math.floor(100000 + Math.random() * 900000).toString();
+                setOtp({...otp, sent: code});
+                
+                emailjs.send("YOUR_SERVICE_ID", "YOUR_TEMPLATE_ID", {
+                    to_email: formData.email,
+                    code: code
+                }).then(() => {
+                    setView("otp");
+                }).catch(() => alert("Mail gönderilemedi, ayarları kontrol et kanka."));
+            };
+
+            // KAYIT TAMAMLA
+            const handleFinalRegister = () => {
+                if(otp.user === otp.sent) {
+                    auth.createUserWithEmailAndPassword(formData.email, formData.password)
+                        .then(() => setView("setup"))
+                        .catch(err => alert(err.message));
+                } else alert("Kod hatalı!");
+            };
+
+            // MESAJLAŞMA MOTORU
             useEffect(() => {
                 if (activeView !== "dm") {
-                    const unsub = db.collection("messages").orderBy("time", "asc").onSnapshot(s => {
-                        setMessages(s.docs.map(d => ({id: d.id, ...d.data()})));
-                    });
+                    const unsub = db.collection("messages")
+                        .where("serverId", "==", activeView)
+                        .orderBy("time", "asc")
+                        .onSnapshot(s => setMessages(s.docs.map(d => ({id: d.id, ...d.data()}))));
                     return () => unsub();
                 }
             }, [activeView]);
 
-            const handlePhotoUpload = (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onloadend = () => setCustomPhoto(reader.result);
-                    reader.readAsDataURL(file);
-                }
-            };
-
-            const addServer = () => {
-                const sName = prompt("Sunucu Adı:");
-                if(sName) setServers([...servers, { id: Date.now(), name: sName }]);
-            };
-
-            const deleteFriend = (id) => {
-                setFriends(friends.filter(f => f.id !== id));
-            };
-
             const sendMessage = (e) => {
                 if(e.key === 'Enter' && inputText.trim()) {
                     db.collection("messages").add({
+                        serverId: activeView,
                         text: inputText,
-                        user: customName || user.displayName,
-                        photo: customPhoto,
+                        user: formData.nickname || user.email.split('@')[0],
+                        photo: formData.photo,
                         time: firebase.firestore.FieldValue.serverTimestamp()
                     });
                     setInputText("");
                 }
             };
 
-            // 1. GİRİŞ EKRANI
-            if (view === "auth") return (
-                <div className="h-screen flex items-center justify-center bg-[#2f3136]">
-                    <button onClick={() => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())} className="bg-[#5865f2] px-10 py-4 rounded-lg font-bold hover:bg-[#4752c4] transition shadow-2xl">TalkHub'a Google ile Bağlan</button>
-                </div>
-            );
+            // --- ARAYÜZ BİLEŞENLERİ ---
 
-            // 2. KİMLİK VE KURULUM EKRANI
-            if (view === "setup") return (
-                <div className="h-screen flex items-center justify-center bg-[#2f3136] p-4">
-                    <div className="bg-[#36393f] p-8 rounded-2xl w-full max-w-md border border-gray-700 shadow-2xl">
-                        <h2 className="text-2xl font-bold text-center mb-6">Profilini Özelleştir</h2>
-                        <div className="flex flex-col items-center space-y-4">
-                            <div className="relative group cursor-pointer">
-                                <img src={customPhoto} className="w-24 h-24 rounded-full border-4 border-[#5865f2] object-cover" />
-                                <input type="file" onChange={handlePhotoUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
-                                <div className="absolute inset-0 bg-black bg-opacity-40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition text-[10px] font-bold">DEĞİŞTİR</div>
+            if (view === "login" || view === "register") return (
+                <div className="h-screen flex items-center justify-center bg-[#2f3136]">
+                    <div className="bg-[#36393f] p-10 rounded-lg shadow-2xl w-full max-w-md border border-[#202225]">
+                        <h2 className="text-3xl font-bold text-center mb-2">TalkHub</h2>
+                        <p className="text-gray-400 text-center mb-8 text-sm">{view === "login" ? "Seni tekrar görmek güzel!" : "Hemen aramıza katıl."}</p>
+                        <form onSubmit={view === "register" ? handleSendOTP : (e) => { e.preventDefault(); auth.signInWithEmailAndPassword(formData.email, formData.password); }}>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="text-[11px] font-bold text-gray-400 uppercase">E-posta</label>
+                                    <input type="email" required className="w-full bg-[#202225] p-3 rounded mt-1 outline-none focus:ring-1 ring-[#5865f2]" onChange={e => setFormData({...formData, email: e.target.value})} />
+                                </div>
+                                <div>
+                                    <label className="text-[11px] font-bold text-gray-400 uppercase">Şifre</label>
+                                    <input type="password" required className="w-full bg-[#202225] p-3 rounded mt-1 outline-none focus:ring-1 ring-[#5865f2]" onChange={e => setFormData({...formData, password: e.target.value})} />
+                                </div>
+                                <button type="submit" className="w-full bg-[#5865f2] py-3 rounded font-bold hover:bg-[#4752c4] transition mt-4">
+                                    {view === "login" ? "Giriş Yap" : "Kod Gönder"}
+                                </button>
                             </div>
-                            <input value={customName} onChange={e => setCustomName(e.target.value)} placeholder="Görünür Adın (Boş bırakırsan Google adın kalır)" className="w-full bg-[#202225] p-3 rounded outline-none border border-gray-600 focus:border-[#5865f2]" />
-                            <button onClick={() => setView("main")} className="w-full bg-[#3ec44f] py-3 rounded font-bold hover:bg-[#34a843] transition">TalkHub'a Dal!</button>
-                        </div>
+                        </form>
+                        <p className="mt-4 text-sm text-gray-400">
+                            {view === "login" ? "Hesabın yok mu?" : "Zaten üye misin?"} 
+                            <span className="text-[#00aff4] cursor-pointer ml-1 hover:underline" onClick={() => setView(view === "login" ? "register" : "login")}>
+                                {view === "login" ? "Kayıt Ol" : "Giriş Yap"}
+                            </span>
+                        </p>
                     </div>
                 </div>
             );
 
-            // 3. ANA UYGULAMA
-            return (
-                <div className="flex h-screen w-full overflow-hidden bg-[#36393f]">
-                    {/* SOL NAV - SUNUCULAR */}
-                    <div className="w-[72px] bg-[#202225] flex flex-col items-center py-3 space-y-2">
-                        <div onClick={() => setActiveView("dm")} className={`w-12 h-12 flex items-center justify-center cursor-pointer transition-all ${activeView === "dm" ? "bg-[#5865f2] rounded-xl" : "bg-[#36393f] rounded-3xl hover:bg-[#5865f2] hover:rounded-xl"}`}>💬</div>
-                        <div className="w-8 h-[2px] bg-[#2f3136] rounded-full"></div>
+            if (view === "otp") return (
+                <div className="h-screen flex items-center justify-center bg-[#2f3136]">
+                    <div className="bg-[#36393f] p-10 rounded-lg text-center w-full max-w-sm">
+                        <h2 className="text-2xl font-bold mb-4">E-postanı Kontrol Et</h2>
+                        <p className="text-sm text-gray-400 mb-6">6 haneli doğrulama kodunu aşağıya gir.</p>
+                        <input type="text" maxLength="6" className="w-full bg-[#202225] p-4 text-center text-3xl tracking-[10px] font-bold rounded mb-6 outline-none border-2 border-[#5865f2]" onChange={e => setOtp({...otp, user: e.target.value})} />
+                        <button onClick={handleFinalRegister} className="w-full bg-[#3ec44f] py-3 rounded font-bold hover:bg-[#34a843]">Doğrula ve Bitir</button>
+                    </div>
+                </div>
+            );
+
+            if (view === "main") return (
+                <div className="flex h-screen w-full overflow-hidden">
+                    {/* SUNUCU MODAL */}
+                    {showModal === 'server' && (
+                        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+                            <div className="bg-[#36393f] p-8 rounded-xl w-96 shadow-2xl scale-110 border border-gray-700">
+                                <h3 className="text-xl font-bold mb-2 text-center">Sunucunu Özelleştir</h3>
+                                <p className="text-xs text-gray-400 text-center mb-6">Sunucuna bir isim ver. İstediğin zaman değiştirebilirsin.</p>
+                                <input id="srvInput" placeholder="Sunucu Adı" className="w-full bg-[#202225] p-3 rounded mb-6 outline-none focus:ring-2 ring-[#5865f2]" />
+                                <div className="flex justify-between items-center">
+                                    <button onClick={() => setShowModal(null)} className="text-sm hover:underline">Vazgeç</button>
+                                    <button onClick={() => {
+                                        const val = document.getElementById('srvInput').value;
+                                        if(val) {
+                                            setServers([...servers, {id: 's_'+Date.now(), name: val, invite: Math.random().toString(36).substr(2,5)}]);
+                                            setShowModal(null);
+                                        }
+                                    }} className="bg-[#5865f2] px-6 py-2 rounded font-bold shadow-lg">Oluştur</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* SOL PANEL (SUNUCULAR) */}
+                    <div className="w-[72px] bg-[#202225] flex flex-col items-center py-3 space-y-2 no-select">
+                        <div onClick={() => setActiveView("dm")} className={`group relative w-12 h-12 flex items-center justify-center cursor-pointer transition-all ${activeView === "dm" ? "bg-[#5865f2] rounded-xl text-white" : "bg-[#36393f] rounded-3xl hover:bg-[#5865f2] hover:rounded-xl text-gray-300"}`}>
+                            <span className="text-xl">💬</span>
+                            <div className="absolute left-14 bg-black px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition pointer-events-none z-50 shadow-xl">Direkt Mesajlar</div>
+                        </div>
+                        <div className="w-8 h-[2px] bg-[#2f3136] rounded-full mx-auto my-1"></div>
                         {servers.map(s => (
-                            <div key={s.id} onClick={() => setActiveView(s.id)} className={`w-12 h-12 flex items-center justify-center font-bold cursor-pointer transition-all ${activeView === s.id ? "bg-[#5865f2] rounded-xl" : "bg-[#36393f] rounded-3xl hover:bg-[#5865f2] hover:rounded-xl"}`}>
+                            <div key={s.id} onClick={() => setActiveView(s.id)} className={`group relative w-12 h-12 flex items-center justify-center font-bold cursor-pointer transition-all ${activeView === s.id ? "bg-[#5865f2] rounded-xl text-white shadow-lg" : "bg-[#36393f] rounded-3xl hover:bg-[#5865f2] hover:rounded-xl text-gray-300"}`}>
                                 {s.name.charAt(0).toUpperCase()}
+                                <div className="absolute left-14 bg-black px-2 py-1 rounded text-xs whitespace-nowrap opacity-0 group-hover:opacity-100 transition z-50">{s.name}</div>
                             </div>
                         ))}
-                        <div onClick={addServer} className="w-12 h-12 bg-[#36393f] rounded-3xl flex items-center justify-center text-[#3ec44f] hover:bg-[#3ec44f] hover:text-white hover:rounded-xl transition-all cursor-pointer text-2xl font-light">+</div>
+                        <div onClick={() => setShowModal('server')} className="w-12 h-12 bg-[#36393f] rounded-3xl flex items-center justify-center text-[#3ec44f] hover:bg-[#3ec44f] hover:text-white hover:rounded-xl transition-all cursor-pointer text-2xl font-light">+</div>
                     </div>
 
-                    {/* LİSTE PANELİ */}
+                    {/* ORTA PANEL (LİSTE) */}
                     <div className="w-60 bg-[#2f3136] flex flex-col border-r border-[#26272b]">
-                        <div className="h-12 flex items-center px-4 font-bold border-b border-[#26272b]">
-                            {activeView === "dm" ? "Direkt Mesajlar" : servers.find(s => s.id === activeView)?.name}
+                        <div className="h-12 flex items-center justify-between px-4 font-bold shadow-sm border-b border-[#26272b] bg-[#2f3136] z-10">
+                            <span className="truncate">{activeView === "dm" ? "TalkHub" : servers.find(s => s.id === activeView)?.name}</span>
+                            {activeView !== "dm" && <span className="cursor-pointer hover:text-white text-gray-400" onClick={() => setShowModal('settings')}>⚙️</span>}
                         </div>
-                        <div className="flex-1 p-3 overflow-y-auto">
+                        <div className="flex-1 p-3 space-y-2 overflow-y-auto">
                             {activeView === "dm" ? (
-                                <div className="space-y-4">
-                                    <button onClick={() => {const n = prompt("Arkadaş adı:"); if(n) setFriends([...friends, {id: Date.now(), name: n}])}} className="w-full bg-[#3ec44f] py-1.5 rounded text-sm font-bold">Arkadaş Ekle</button>
-                                    <div className="text-gray-400 text-[11px] font-bold uppercase px-1">Arkadaşlar</div>
-                                    {friends.map(f => (
-                                        <div key={f.id} className="flex items-center justify-between p-2 hover:bg-[#393c43] rounded group cursor-pointer">
-                                            <span className="text-sm text-gray-300 group-hover:text-white">{f.name}</span>
-                                            <button onClick={() => deleteFriend(f.id)} className="hidden group-hover:block text-red-500 text-xs font-bold">SİL</button>
-                                        </div>
-                                    ))}
+                                <div className="space-y-4 pt-2 text-center opacity-40 italic text-sm">
+                                    <button className="w-full bg-[#3ec44f] not-italic text-white py-2 rounded font-bold opacity-100 transition hover:bg-[#34a843]">Arkadaş Ekle</button>
+                                    <p>Henüz kimse eklenmemiş...</p>
                                 </div>
                             ) : (
-                                <div className="bg-[#393c43] p-2 rounded text-sm"># genel-sohbet</div>
+                                <div className="space-y-[2px]">
+                                    <div className="bg-[#393c43] px-2 py-1.5 rounded text-white flex items-center text-sm cursor-pointer">
+                                        <span className="text-gray-400 mr-2 text-xl">#</span> genel-sohbet
+                                    </div>
+                                </div>
                             )}
                         </div>
-                        {/* ALT PROFİL PANELİ */}
+                        {/* ALT PROFİL KARTI */}
                         <div className="bg-[#292b2f] p-2 flex items-center space-x-2">
-                            <img src={customPhoto} className="w-8 h-8 rounded-full border border-gray-700 object-cover" />
-                            <div className="flex-1 overflow-hidden">
-                                <p className="text-xs font-bold truncate">{customName || user.displayName}</p>
-                                <p className="text-[10px] text-gray-500 leading-none">Çevrimiçi</p>
+                            <div className="relative group cursor-pointer">
+                                <img src={formData.photo} className="w-8 h-8 rounded-full bg-gray-600 object-cover" />
+                                <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => {
+                                    const r = new FileReader(); r.onload = () => setFormData({...formData, photo: r.result}); r.readAsDataURL(e.target.files[0]);
+                                }} />
                             </div>
-                            <button onClick={() => auth.signOut()} className="text-xs text-red-400 hover:underline">Çıkış</button>
+                            <div className="flex-1 overflow-hidden">
+                                <p className="text-xs font-bold truncate leading-none mb-1">{formData.nickname || user.email.split('@')[0]}</p>
+                                <p className="text-[10px] text-gray-500 truncate leading-none">Çevrimiçi</p>
+                            </div>
+                            <button onClick={() => auth.signOut()} className="text-[10px] text-red-400 hover:bg-red-400/10 p-1 rounded transition">Çıkış</button>
                         </div>
                     </div>
 
-                    {/* CHAT PANELİ */}
-                    <div className="flex-1 flex flex-col">
-                        <div className="h-12 border-b border-[#26272b] flex items-center px-4 shadow-sm text-gray-400 italic">
-                            {activeView === "dm" ? "Arkadaşlarınla fısıldaş..." : `# ${servers.find(s => s.id === activeView)?.name} - Genel Sohbet`}
+                    {/* SAĞ PANEL (CHAT) */}
+                    <div className="flex-1 flex flex-col bg-[#36393f] relative shadow-inner">
+                        <div className="h-12 border-b border-[#26272b] flex items-center px-4 font-bold text-sm shadow-sm bg-[#36393f] z-10">
+                            <span className="text-gray-400 mr-2 text-xl">#</span>
+                            {activeView === "dm" ? "ana-sayfa" : "genel-sohbet"}
                         </div>
-                        <div className="flex-1 p-4 overflow-y-auto space-y-4">
-                            {activeView !== "dm" ? messages.map(m => (
-                                <div key={m.id} className="flex space-x-3">
-                                    <img src={m.photo} className="w-10 h-10 rounded-full object-cover" />
-                                    <div>
-                                        <span className="font-bold text-white text-sm mr-2">{m.user}</span>
-                                        <p className="text-gray-300 text-[14px] leading-relaxed">{m.text}</p>
+                        <div className="flex-1 p-4 overflow-y-auto space-y-6">
+                            {activeView !== "dm" ? (
+                                messages.length > 0 ? messages.map(m => (
+                                    <div key={m.id} className="flex space-x-4 group hover:bg-[#32353b] -mx-4 px-4 py-1 transition">
+                                        <img src={m.photo} className="w-10 h-10 rounded-full mt-1 object-cover shadow-lg" />
+                                        <div className="flex-1 overflow-hidden">
+                                            <div className="flex items-center space-x-2">
+                                                <span className="font-bold text-white text-[15px] hover:underline cursor-pointer">{m.user}</span>
+                                                <span className="text-[10px] text-gray-500 mt-0.5 uppercase">Bugün</span>
+                                            </div>
+                                            <p className="text-gray-300 text-[14px] leading-[1.3] break-words">{m.text}</p>
+                                        </div>
                                     </div>
-                                </div>
-                            )) : (
-                                <div className="h-full flex flex-col items-center justify-center opacity-20">
-                                    <span className="text-6xl mb-4">🤫</span>
-                                    <p>Burada her şey gizli...</p>
+                                )) : (
+                                    <div className="h-full flex flex-col items-center justify-center opacity-20">
+                                        <span className="text-5xl mb-4">💬</span>
+                                        <p>İlk mesajı sen at kanka!</p>
+                                    </div>
+                                )
+                            ) : (
+                                <div className="h-full flex flex-col items-center justify-center text-center max-w-sm mx-auto opacity-50">
+                                    <div className="w-20 h-20 bg-[#5865f2] rounded-3xl flex items-center justify-center text-4xl mb-4 shadow-2xl font-bold">TH</div>
+                                    <h2 className="text-2xl font-bold text-white mb-2">TalkHub'a Hoş Geldin!</h2>
+                                    <p className="text-sm">Arkadaşlarını ekleyerek veya bir sunucu oluşturarak sohbete hemen başlayabilirsin.</p>
                                 </div>
                             )}
                         </div>
                         {activeView !== "dm" && (
-                            <div className="p-4 bg-[#36393f]">
-                                <input value={inputText} onChange={e => setInputText(e.target.value)} onKeyDown={sendMessage} placeholder="Mesajını buraya yaz..." className="w-full bg-[#40444b] rounded-lg px-4 py-3 outline-none text-sm" />
+                            <div className="px-4 pb-6">
+                                <div className="bg-[#40444b] rounded-lg flex items-center px-4 py-2.5 shadow-xl border border-transparent focus-within:border-[#5865f2] transition">
+                                    <input 
+                                        value={inputText}
+                                        onChange={e => setInputText(e.target.value)}
+                                        onKeyDown={sendMessage}
+                                        placeholder={`${activeView === "dm" ? "Arkadaşına" : "Kanala"} mesaj gönder...`} 
+                                        className="bg-transparent w-full outline-none text-sm placeholder-gray-500" 
+                                    />
+                                </div>
                             </div>
                         )}
                     </div>
                 </div>
             );
+
+            return <div className="h-screen flex items-center justify-center italic opacity-50">TalkHub Yükleniyor...</div>;
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
